@@ -6,7 +6,7 @@
 
     <groupId>cn.leancloud</groupId>
     <artifactId>kafka-java-consumer</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>0.0.1-SNAPSHOT</version>
 
     <name>${project.groupId}:${project.artifactId}</name>
     <description>A kafka consumer client for Java.</description>
