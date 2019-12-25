@@ -26,8 +26,6 @@
 
     <developers>
         <developer>
-            <name>Rui Guo</name>
-            <email>rguo@leancloud.rocks</email>
             <organization>LeanCloud</organization>
             <organizationUrl>https://leancloud.cn/</organizationUrl>
         </developer>
