@@ -1,0 +1,9 @@
+/target                                                                                                                                                                                                                                    
+/classes
+/checkouts
+*.jar
+*.class
+.hgignore
+.hg/
+*.iml
+.idea/
