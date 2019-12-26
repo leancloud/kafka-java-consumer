@@ -88,6 +88,30 @@ public class LcKafkaConsumerBuilderTest {
     }
 
     @Test
+    public void testNullPollTimeout() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .pollTimeout(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("pollTimeout");
+    }
+
+    @Test
+    public void testNegativeShutdownTimeout() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .gracefulShutdownTimeoutMillis(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("gracefulShutdownMillis");
+    }
+
+    @Test
+    public void testNullShutdownTimeout() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .gracefulShutdownTimeout(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("gracefulShutdownTimeout");
+    }
+
+    @Test
     public void testNegativeMaxPendingAsyncCommits() {
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
                 .maxPendingAsyncCommits(-1 * ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE)))
@@ -101,14 +125,6 @@ public class LcKafkaConsumerBuilderTest {
                 .maxPendingAsyncCommits(0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("maxPendingAsyncCommits");
-    }
-
-    @Test
-    public void testNullPollTimeout() {
-        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
-                .pollTimeout(null))
-                .isInstanceOf(NullPointerException.class)
-                .hasMessage("pollTimeout");
     }
 
     @Test

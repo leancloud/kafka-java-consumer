@@ -44,16 +44,18 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
             consumer.commitAsync(completedTopicOffsets, (offsets, exception) -> {
                 --pendingAsyncCommitCounter;
                 assert pendingAsyncCommitCounter >= 0 : "actual: " + pendingAsyncCommitCounter;
-                final Map<TopicPartition, OffsetAndMetadata> completeOffsets =
-                        offsets == completedTopicOffsets ? new HashMap<>(offsets) : offsets;
-                for (Map.Entry<TopicPartition, OffsetAndMetadata> entry : completeOffsets.entrySet()) {
-                    completedTopicOffsets.remove(entry.getKey(), entry.getValue());
-                    topicOffsetHighWaterMark.remove(entry.getKey(), entry.getValue().offset());
-                }
-
                 if (exception != null) {
+                    // if last async commit is failed, we do not clean cached completed offsets and let next
+                    // commit be a sync commit so all the complete offsets will be committed at that time
                     logger.warn("Failed to commit offset: " + offsets + " asynchronously", exception);
                     forceSync = true;
+                } else {
+                    final Map<TopicPartition, OffsetAndMetadata> completeOffsets =
+                            offsets == completedTopicOffsets ? new HashMap<>(offsets) : offsets;
+                    for (Map.Entry<TopicPartition, OffsetAndMetadata> entry : completeOffsets.entrySet()) {
+                        completedTopicOffsets.remove(entry.getKey(), entry.getValue());
+                        topicOffsetHighWaterMark.remove(entry.getKey(), entry.getValue().offset());
+                    }
                 }
             });
         }

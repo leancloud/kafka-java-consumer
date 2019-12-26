@@ -168,6 +168,7 @@ public class PartialAsyncCommitPolicyTest {
 
         policy = new PartialAsyncCommitPolicy<>(mockConsumer, 10);
 
+        // a failed async commit on the first time
         final ConsumerRecord<Object, Object> triggerFailedRecord = pendingRecords.get(0);
         completeRecord(triggerFailedRecord);
         assertThat(policy.tryCommit(true))
@@ -177,11 +178,15 @@ public class PartialAsyncCommitPolicyTest {
         verify(mockConsumer, times(1)).commitAsync(any(), any());
         verify(mockConsumer, never()).commitSync(any());
 
+        // sync commit after the failed async commit
         final ConsumerRecord<Object, Object> syncRecord = pendingRecords.get(1);
         completeRecord(syncRecord);
         assertThat(policy.tryCommit(true))
-                .hasSize(1)
-                .isEqualTo(Collections.singleton(new TopicPartition(syncRecord.topic(), syncRecord.partition())));
+                .hasSize(2)
+                .containsExactlyInAnyOrderElementsOf(Arrays.asList(
+                        new TopicPartition(syncRecord.topic(), syncRecord.partition()),
+                        new TopicPartition(syncRecord.topic(), triggerFailedRecord.partition())
+                ));
 
         verify(mockConsumer, times(1)).commitAsync(any(), any());
         verify(mockConsumer, times(1)).commitSync(any());

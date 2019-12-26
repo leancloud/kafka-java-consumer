@@ -143,9 +143,9 @@ public final class LcKafkaConsumerBuilder<K, V> {
         return this;
     }
 
-    public LcKafkaConsumerBuilder<K,V> gracefulShutdownTimeout(Duration duration) {
-        requireNonNull(duration);
-        this.gracefulShutdownMillis = duration.toMillis();
+    public LcKafkaConsumerBuilder<K,V> gracefulShutdownTimeout(Duration gracefulShutdownTimeout) {
+        requireNonNull(gracefulShutdownTimeout, "gracefulShutdownTimeout");
+        this.gracefulShutdownMillis = gracefulShutdownTimeout.toMillis();
         return this;
     }
 

@@ -39,7 +39,6 @@ final class AsyncCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
                 if (exception != null) {
                     logger.warn("Failed to commit offsets: " + offsets + " asynchronously", exception);
                     forceSync = true;
-
                 }
             });
         }
