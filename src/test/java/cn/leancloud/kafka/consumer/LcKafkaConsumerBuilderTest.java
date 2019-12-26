@@ -82,9 +82,9 @@ public class LcKafkaConsumerBuilderTest {
     @Test
     public void testNegativePollTimeoutMs() {
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
-                .pollTimeoutMs(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
+                .pollTimeoutMillis(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("pollTimeoutMs");
+                .hasMessageContaining("pollTimeoutMillis");
     }
 
     @Test
@@ -157,7 +157,7 @@ public class LcKafkaConsumerBuilderTest {
         configs.put("auto.offset.reset", "latest");
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
-                .pollTimeoutMs(1000)
+                .pollTimeoutMillis(1000)
                 .maxPendingAsyncCommits(100)
                 .workerPool(workerPool, true)
                 .buildAuto())
@@ -173,7 +173,7 @@ public class LcKafkaConsumerBuilderTest {
         configs.put("auto.offset.reset", "latest");
         final LcKafkaConsumer<Object, Object> consumer = LcKafkaConsumerBuilder.newBuilder(configs, testingHandler)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
-                .pollTimeoutMs(1000)
+                .pollTimeoutMillis(1000)
                 .maxPendingAsyncCommits(100)
                 .workerPool(workerPool, false)
                 .buildAuto();

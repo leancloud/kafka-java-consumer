@@ -113,8 +113,8 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * @param pollTimeoutMs the poll timeout in milliseconds
      * @return this
      */
-    public LcKafkaConsumerBuilder<K, V> pollTimeoutMs(long pollTimeoutMs) {
-        requireArgument(pollTimeoutMs >= 0, "pollTimeoutMs: %s (expect >= 0)", pollTimeoutMs);
+    public LcKafkaConsumerBuilder<K, V> pollTimeoutMillis(long pollTimeoutMs) {
+        requireArgument(pollTimeoutMs >= 0, "pollTimeoutMillis: %s (expect >= 0)", pollTimeoutMs);
         this.pollTimeout = pollTimeoutMs;
         return this;
     }
@@ -137,13 +137,13 @@ public final class LcKafkaConsumerBuilder<K, V> {
         return this;
     }
 
-    public LcKafkaConsumerBuilder<K,V> gracefulShutdownMs(long gracefulShutdownMs) {
+    public LcKafkaConsumerBuilder<K,V> gracefulShutdownTimeoutMillis(long gracefulShutdownMs) {
         requireArgument(gracefulShutdownMs >= 0, "gracefulShutdownMillis: %s (expected >= 0)", gracefulShutdownMs);
         this.gracefulShutdownMillis = gracefulShutdownMs;
         return this;
     }
 
-    public LcKafkaConsumerBuilder<K,V> gracefulShutdownMs(Duration duration) {
+    public LcKafkaConsumerBuilder<K,V> gracefulShutdownTimeout(Duration duration) {
         requireNonNull(duration);
         this.gracefulShutdownMillis = duration.toMillis();
         return this;
