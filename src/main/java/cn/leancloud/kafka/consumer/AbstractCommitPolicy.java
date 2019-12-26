@@ -6,6 +6,7 @@ import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -51,13 +52,27 @@ abstract class AbstractCommitPolicy<K,V> implements CommitPolicy<K,V> {
         return partitions;
     }
 
-    Set<TopicPartition> checkCompletedPartitions() {
-        return completedTopicOffsets
-                .entrySet()
-                .stream()
-                .filter(entry -> topicOffsetMeetHighWaterMark(entry.getKey(), entry.getValue()))
-                .map(Map.Entry::getKey)
-                .collect(toSet());
+    Set<TopicPartition> getCompletedPartitions(boolean noPendingRecords) {
+        final Set<TopicPartition> partitions;
+        if (noPendingRecords) {
+            assert checkCompletedPartitions().equals(topicOffsetHighWaterMark.keySet())
+                    : "expect: " + checkCompletedPartitions() + " actual: " + topicOffsetHighWaterMark.keySet();
+            partitions = new HashSet<>(topicOffsetHighWaterMark.keySet());
+        } else {
+            partitions = checkCompletedPartitions();
+        }
+        return partitions;
+    }
+
+    void clearCachedCompletedPartitionsRecords(Set<TopicPartition> completedPartitions, boolean noPendingRecords) {
+        completedTopicOffsets.clear();
+        if (noPendingRecords) {
+            topicOffsetHighWaterMark.clear();
+        } else {
+            for (TopicPartition p : completedPartitions) {
+                topicOffsetHighWaterMark.remove(p);
+            }
+        }
     }
 
     Map<TopicPartition, Long> topicOffsetHighWaterMark() {
@@ -66,6 +81,15 @@ abstract class AbstractCommitPolicy<K,V> implements CommitPolicy<K,V> {
 
     Map<TopicPartition, OffsetAndMetadata> completedTopicOffsets() {
         return completedTopicOffsets;
+    }
+
+    private Set<TopicPartition> checkCompletedPartitions() {
+        return completedTopicOffsets
+                .entrySet()
+                .stream()
+                .filter(entry -> topicOffsetMeetHighWaterMark(entry.getKey(), entry.getValue()))
+                .map(Map.Entry::getKey)
+                .collect(toSet());
     }
 
     private boolean topicOffsetMeetHighWaterMark(TopicPartition topicPartition, OffsetAndMetadata offset) {

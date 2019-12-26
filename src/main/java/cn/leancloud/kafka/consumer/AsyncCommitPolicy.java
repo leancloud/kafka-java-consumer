@@ -44,6 +44,8 @@ final class AsyncCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
         }
 
         final Set<TopicPartition> partitions = new HashSet<>(completedTopicOffsets.keySet());
+        // it's OK to clear these collections here and we will not left any complete offset without commit even
+        // when this async commit failed because if the async commit failed we will do a sync commit after all
         completedTopicOffsets.clear();
         topicOffsetHighWaterMark.clear();
         return partitions;

@@ -31,14 +31,7 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
             consumer.commitSync(completedTopicOffsets);
             pendingAsyncCommitCounter = 0;
             forceSync = false;
-            completedTopicOffsets.clear();
-            if (noPendingRecords) {
-                topicOffsetHighWaterMark.clear();
-            } else {
-                for (TopicPartition p : partitions) {
-                    topicOffsetHighWaterMark.remove(p);
-                }
-            }
+            clearCachedCompletedPartitionsRecords(partitions, noPendingRecords);
         } else {
             ++pendingAsyncCommitCounter;
             consumer.commitAsync(completedTopicOffsets, (offsets, exception) -> {
@@ -58,18 +51,6 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
                     }
                 }
             });
-        }
-        return partitions;
-    }
-
-    private Set<TopicPartition> getCompletedPartitions(boolean noPendingRecords) {
-        final Set<TopicPartition> partitions;
-        if (noPendingRecords) {
-            assert checkCompletedPartitions().equals(topicOffsetHighWaterMark.keySet())
-                    : "expect: " + checkCompletedPartitions() + " actual: " + topicOffsetHighWaterMark.keySet();
-            partitions = new HashSet<>(topicOffsetHighWaterMark.keySet());
-        } else {
-            partitions = checkCompletedPartitions();
         }
         return partitions;
     }

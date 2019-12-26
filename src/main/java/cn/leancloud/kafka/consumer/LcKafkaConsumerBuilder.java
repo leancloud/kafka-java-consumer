@@ -10,16 +10,11 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-
 
 import static cn.leancloud.kafka.consumer.BasicConsumerConfigs.ENABLE_AUTO_COMMIT;
 import static java.util.Objects.requireNonNull;
 
 public final class LcKafkaConsumerBuilder<K, V> {
-    private static final ThreadFactory threadFactory = new NamedThreadFactory("lc-kafka-consumer-task-worker-pool-");
-
     /**
      * Create a {@code LcKafkaConsumerBuilder} used to build {@link LcKafkaConsumer}.
      *
@@ -70,6 +65,8 @@ public final class LcKafkaConsumerBuilder<K, V> {
     private long pollTimeout = 100;
     private int maxPendingAsyncCommits = 10;
     private long gracefulShutdownMillis = 10_000;
+    private ExecutorService workerPool = ImmediateExecutorService.INSTANCE;
+    private boolean shutdownWorkerPoolOnStop = false;
     private Map<String, Object> configs;
     private MessageHandler<K, V> messageHandler;
     @Nullable
@@ -80,9 +77,6 @@ public final class LcKafkaConsumerBuilder<K, V> {
     private Deserializer<V> valueDeserializer;
     @Nullable
     private CommitPolicy<K, V> policy;
-    @Nullable
-    private ExecutorService workerPool;
-    private boolean shutdownWorkerPoolOnStop;
 
     private LcKafkaConsumerBuilder(Map<String, Object> kafkaConsumerConfigs,
                                    MessageHandler<K, V> messageHandler) {
@@ -239,12 +233,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildAuto() {
         checkConfigs(AutoCommitConsumerConfigs.values());
         consumer = buildConsumer(true);
-        policy = AutoCommitPolicy.getInstance();
-        if (workerPool != null && shutdownWorkerPoolOnStop) {
-            throw new IllegalArgumentException("auto commit consumer don't need a worker pool");
-        }
-        workerPool = ImmediateExecutorService.INSTANCE;
-        shutdownWorkerPoolOnStop = false;
+        policy = workerPool == ImmediateExecutorService.INSTANCE ? NoOpCommitPolicy.getInstance() : new AutoCommitPolicy<>(consumer);
         return doBuild();
     }
 
@@ -282,7 +271,6 @@ public final class LcKafkaConsumerBuilder<K, V> {
     }
 
     ExecutorService getWorkerPool() {
-        assert workerPool != null;
         return workerPool;
     }
 
@@ -327,11 +315,6 @@ public final class LcKafkaConsumerBuilder<K, V> {
     }
 
     private <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> doBuild() {
-        if (workerPool == null) {
-            workerPool = Executors.newCachedThreadPool(threadFactory);
-            shutdownWorkerPoolOnStop = true;
-        }
-
         @SuppressWarnings("unchecked")
         final LcKafkaConsumer<K1, V1> c = (LcKafkaConsumer<K1, V1>) new LcKafkaConsumer<>(this);
         return c;

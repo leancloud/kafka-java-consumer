@@ -166,22 +166,6 @@ public class LcKafkaConsumerBuilderTest {
     }
 
     @Test
-    public void testAutoConsumerWithShouldShutdownWorkerPool() {
-        configs.put("max.poll.records", "10");
-        configs.put("max.poll.interval.ms", "1000");
-        configs.put("auto.commit.interval.ms", "1000");
-        configs.put("auto.offset.reset", "latest");
-        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
-                .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
-                .pollTimeoutMillis(1000)
-                .maxPendingAsyncCommits(100)
-                .workerPool(workerPool, true)
-                .buildAuto())
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("auto commit consumer don't need a worker pool");
-    }
-
-    @Test
     public void testAutoConsumer() {
         configs.put("max.poll.records", "10");
         configs.put("max.poll.interval.ms", "1000");
@@ -191,11 +175,10 @@ public class LcKafkaConsumerBuilderTest {
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .pollTimeoutMillis(1000)
                 .maxPendingAsyncCommits(100)
-                .workerPool(workerPool, false)
                 .buildAuto();
 
         assertThat(consumer).isNotNull();
-        assertThat(consumer.policy()).isInstanceOf(AutoCommitPolicy.class);
+        assertThat(consumer.policy()).isInstanceOf(NoOpCommitPolicy.class);
         consumer.close();
     }
 

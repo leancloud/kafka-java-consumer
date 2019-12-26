@@ -1,36 +1,24 @@
 package cn.leancloud.kafka.consumer;
 
-import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.common.TopicPartition;
 
 import java.util.Collections;
 import java.util.Set;
 
-final class AutoCommitPolicy<K, V> implements CommitPolicy<K, V> {
-    private static final AutoCommitPolicy INSTANCE = new AutoCommitPolicy();
-
-    @SuppressWarnings("unchecked")
-    static <K, V> AutoCommitPolicy<K, V> getInstance() {
-        return (AutoCommitPolicy<K, V>) INSTANCE;
-    }
-
-    @Override
-    public void addPendingRecord(ConsumerRecord<K, V> record) {
-
-    }
-
-    @Override
-    public void completeRecord(ConsumerRecord<K, V> record) {
-
+class AutoCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
+    AutoCommitPolicy(Consumer<K, V> consumer) {
+        super(consumer);
     }
 
     @Override
     public Set<TopicPartition> tryCommit(boolean noPendingRecords) {
-        return Collections.emptySet();
-    }
+        if (completedTopicOffsets.isEmpty()) {
+            return Collections.emptySet();
+        }
 
-    @Override
-    public Set<TopicPartition> partialCommit() {
-        return Collections.emptySet();
+        final Set<TopicPartition> partitions = getCompletedPartitions(noPendingRecords);
+        clearCachedCompletedPartitionsRecords(partitions, noPendingRecords);
+        return partitions;
     }
 }
