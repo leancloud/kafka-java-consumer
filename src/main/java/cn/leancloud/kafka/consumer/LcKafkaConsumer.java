@@ -1,9 +1,12 @@
 package cn.leancloud.kafka.consumer;
 
 import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.common.Metric;
+import org.apache.kafka.common.MetricName;
 
 import java.io.Closeable;
 import java.util.Collection;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -78,6 +81,13 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
         fetcherThread.start();
 
         state = State.SUBSCRIBED;
+    }
+
+    /**
+     * Get the metrics kept by the consumer
+     */
+    public Map<MetricName, ? extends Metric> metrics() {
+        return consumer.metrics();
     }
 
     @Override
