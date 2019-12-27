@@ -1,6 +1,6 @@
 package cn.leancloud.kafka.consumer;
 
-public class HandleMessageFailedException extends RuntimeException {
+public final class HandleMessageFailedException extends RuntimeException {
     public HandleMessageFailedException() {
         super();
     }

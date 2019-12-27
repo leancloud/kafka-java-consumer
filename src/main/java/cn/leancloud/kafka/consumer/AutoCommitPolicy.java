@@ -6,7 +6,7 @@ import org.apache.kafka.common.TopicPartition;
 import java.util.Collections;
 import java.util.Set;
 
-class AutoCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
+final class AutoCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
     AutoCommitPolicy(Consumer<K, V> consumer) {
         super(consumer);
     }

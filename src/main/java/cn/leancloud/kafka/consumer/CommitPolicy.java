@@ -5,7 +5,7 @@ import org.apache.kafka.common.TopicPartition;
 
 import java.util.Set;
 
-public interface CommitPolicy<K, V> {
+interface CommitPolicy<K, V> {
     void addPendingRecord(ConsumerRecord<K, V> record);
 
     void completeRecord(ConsumerRecord<K, V> record);

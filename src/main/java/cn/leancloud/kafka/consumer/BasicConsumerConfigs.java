@@ -4,6 +4,7 @@ import javax.annotation.Nullable;
 
 enum BasicConsumerConfigs implements KafkaConfigsChecker {
     AUTO_OFFSET_RESET("auto.offset.reset"),
+    MAX_POLL_RECORDS("max.poll.records"),
     ENABLE_AUTO_COMMIT("enable.auto.commit", false);
 
     private String config;

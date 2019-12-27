@@ -4,7 +4,6 @@ import javax.annotation.Nullable;
 
 enum AutoCommitConsumerConfigs implements KafkaConfigsChecker {
     MAX_POLL_INTERVAL_MS("max.poll.interval.ms"),
-    MAX_POLL_RECORDS("max.poll.records"),
     AUTO_COMMIT_INTERVAL_MS("auto.commit.interval.ms");
 
     private String config;

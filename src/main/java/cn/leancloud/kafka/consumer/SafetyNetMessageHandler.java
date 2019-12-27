@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.function.BiConsumer;
 
-public class SafetyNetMessageHandler<K, V> implements MessageHandler<K, V> {
+public final class SafetyNetMessageHandler<K, V> implements MessageHandler<K, V> {
     private static final Logger logger = LoggerFactory.getLogger(SafetyNetMessageHandler.class);
 
     private final MessageHandler<K, V> innerHandler;
