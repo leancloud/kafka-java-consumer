@@ -58,22 +58,6 @@ public class LcKafkaConsumerBuilderTest {
     }
 
     @Test
-    public void testNullMessageHandler() {
-        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, null))
-                .isInstanceOf(NullPointerException.class)
-                .hasMessage("consumerRecordHandler");
-
-        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, null, keyDeserializer, valueDeserializer))
-                .isInstanceOf(NullPointerException.class)
-                .hasMessage("consumerRecordHandler");
-
-        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
-                .messageHandler(null))
-                .isInstanceOf(NullPointerException.class)
-                .hasMessage("consumerRecordHandler");
-    }
-
-    @Test
     public void testNullDeserializers() {
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, null, valueDeserializer))
                 .isInstanceOf(NullPointerException.class)
@@ -104,7 +88,7 @@ public class LcKafkaConsumerBuilderTest {
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
                 .gracefulShutdownTimeoutMillis(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("gracefulShutdownMillis");
+                .hasMessageContaining("gracefulShutdownTimeoutMillis");
     }
 
     @Test

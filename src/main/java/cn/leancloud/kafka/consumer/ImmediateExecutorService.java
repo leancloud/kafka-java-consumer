@@ -6,7 +6,9 @@ import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * This is an shared {@link java.util.concurrent.ExecutorService} so it can not be shutdown
+ * A {@link java.util.concurrent.ExecutorService} which run all the tasks in the thread which submit the task.
+ * <p>
+ * This is an shared {@link java.util.concurrent.ExecutorService} so it can not be shutdown.
  */
 final class ImmediateExecutorService extends AbstractExecutorService {
     static final ImmediateExecutorService INSTANCE = new ImmediateExecutorService();

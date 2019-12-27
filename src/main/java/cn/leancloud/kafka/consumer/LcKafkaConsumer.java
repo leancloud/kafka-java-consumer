@@ -11,9 +11,9 @@ import java.util.concurrent.TimeUnit;
  * {@code LcKafkaConsumer} is a wrapper over {@link Consumer}. It will use {@link Consumer} to consume
  * records from Kafka broker.
  * <p>
- * With {@link LcKafkaConsumer}, you can subscribe to several topics and handle all the records from these topic
- * in a dedicated thread pool without warring polling timeout or session timeout due to the polling thread failed
- * to poll spend too much time on process records
+ * With {@link LcKafkaConsumer}, you can subscribe to several topics and handle all the records from these topics
+ * in a dedicated thread pool without warring polling timeout or session timeout due to the polling thread spend
+ * too much time on process records and failed to poll broker at least once within {@code max.poll.interval.ms}.
  * <p>
  * All the public methods in {@code LcKafkaConsumer} is thread safe.
  *
