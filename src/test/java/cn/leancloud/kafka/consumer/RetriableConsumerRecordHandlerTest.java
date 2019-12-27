@@ -34,7 +34,7 @@ public class RetriableConsumerRecordHandlerTest {
     @Test
     public void testRetry() {
         final Exception expectedEx = new RuntimeException();
-        final int retryTimes = 10;
+        final int retryTimes = 9;
 
         doThrow(expectedEx).when(wrappedHandler).handleRecord(testingRecord);
 
@@ -44,7 +44,7 @@ public class RetriableConsumerRecordHandlerTest {
                 .isInstanceOf(HandleMessageFailedException.class)
                 .hasCause(expectedEx);
 
-        verify(wrappedHandler, times(retryTimes)).handleRecord(testingRecord);
+        verify(wrappedHandler, times(retryTimes + 1)).handleRecord(testingRecord);
     }
 
     @Test
@@ -61,8 +61,8 @@ public class RetriableConsumerRecordHandlerTest {
     }
 
     @Test
-    public void testRetrySuccess() {
-        final Exception expectedEx = new RuntimeException();
+    public void testRetryToSuccess() {
+        final Exception expectedEx = new RuntimeException("intended exception");
         final int retryTimes = 10;
 
         doThrow(expectedEx).doNothing().when(wrappedHandler).handleRecord(testingRecord);
@@ -75,7 +75,7 @@ public class RetriableConsumerRecordHandlerTest {
     }
 
     @Test
-    public void testInterruptInRetryInterval() throws Exception {
+    public void testInterruptInRetryIntervalAndFailForever() throws Exception {
         final Exception expectedEx = new RuntimeException();
         final int retryTimes = 10;
 
@@ -87,8 +87,23 @@ public class RetriableConsumerRecordHandlerTest {
                 .isInstanceOf(HandleMessageFailedException.class)
                 .hasCause(expectedEx);
 
-        assertThat(Thread.currentThread().isInterrupted()).isTrue();
-        verify(wrappedHandler, times(1)).handleRecord(testingRecord);
+        assertThat(Thread.interrupted()).isTrue();
+        verify(wrappedHandler, times(retryTimes + 1)).handleRecord(testingRecord);
+    }
+
+    @Test
+    public void testInterruptInRetryIntervalAndRetryToSuccess() throws Exception {
+        final Exception expectedEx = new RuntimeException("intended exception");
+        final int retryTimes = 2;
+
+        doThrow(expectedEx).doThrow(expectedEx).doNothing().when(wrappedHandler).handleRecord(testingRecord);
+
+        final ConsumerRecordHandler<Object, Object> handler = new RetriableConsumerRecordHandler<>(wrappedHandler, retryTimes, Duration.ofHours(1));
+        interruptAfter(Thread.currentThread(), 200);
+        handler.handleRecord(testingRecord);
+
+        assertThat(Thread.interrupted()).isTrue();
+        verify(wrappedHandler, times(3)).handleRecord(testingRecord);
     }
 
     private void interruptAfter(Thread threadToInterrupt, long triggerDelayMillis) throws Exception {

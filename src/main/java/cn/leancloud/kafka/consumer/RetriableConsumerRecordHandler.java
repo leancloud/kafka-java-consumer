@@ -53,21 +53,22 @@ public final class RetriableConsumerRecordHandler<K, V> implements ConsumerRecor
     @Override
     public void handleRecord(ConsumerRecord<K, V> record) {
         Exception lastException = null;
-        int tried = 0;
-        while (tried++ < maxRetryTimes) {
+        int retried = 0;
+        while (retried <= maxRetryTimes) {
             try {
                 wrappedHandler.handleRecord(record);
                 return;
             } catch (Exception ex) {
                 lastException = ex;
-                if (tried != maxRetryTimes) {
-                    try {
-                        Thread.sleep(retryInterval.toMillis());
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
+                try {
+                    Thread.sleep(retryInterval.toMillis());
+                } catch (InterruptedException e) {
+                    // keep the interrupt status and still retry for the next time
+                    // because interrupt means we can't block this thread, but
+                    // it does not mean we should quit our job
+                    Thread.currentThread().interrupt();
                 }
+                ++retried;
             }
         }
 

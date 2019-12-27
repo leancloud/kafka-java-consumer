@@ -85,6 +85,8 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
 
     /**
      * Get the metrics kept by the consumer
+     *
+     * @return the metrics kept by the consumer
      */
     public Map<MetricName, ? extends Metric> metrics() {
         return consumer.metrics();
