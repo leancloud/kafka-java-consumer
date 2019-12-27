@@ -1,8 +1,8 @@
 package cn.leancloud.kafka.consumer.integration;
 
+import cn.leancloud.kafka.consumer.ConsumerRecordHandler;
 import cn.leancloud.kafka.consumer.LcKafkaConsumer;
 import cn.leancloud.kafka.consumer.LcKafkaConsumerBuilder;
-import cn.leancloud.kafka.consumer.MessageHandler;
 import cn.leancloud.kafka.consumer.NamedThreadFactory;
 import org.apache.kafka.common.serialization.IntegerDeserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -46,7 +46,7 @@ public class Bootstrap {
 
         @Override
         public LcKafkaConsumer<Integer, String> buildConsumer(String consumerName, TestStatistics statistics) {
-            final MessageHandler<Integer, String> handler = createMessageHandler(consumerName, statistics);
+            final ConsumerRecordHandler<Integer, String> handler = createRecordHandler(consumerName, statistics);
             final Map<String, Object> configs = new HashMap<>();
             configs.put("bootstrap.servers", "localhost:9092");
             configs.put("client.id", consumerName);
@@ -73,7 +73,7 @@ public class Bootstrap {
 
         @Override
         public LcKafkaConsumer<Integer, String> buildConsumer(String consumerName, TestStatistics statistics) {
-            final MessageHandler<Integer, String> handler = createMessageHandler(consumerName, statistics);
+            final ConsumerRecordHandler<Integer, String> handler = createRecordHandler(consumerName, statistics);
             final Map<String, Object> configs = new HashMap<>();
             configs.put("bootstrap.servers", "localhost:9092");
             configs.put("client.id", consumerName);
@@ -100,7 +100,7 @@ public class Bootstrap {
 
         @Override
         public LcKafkaConsumer<Integer, String> buildConsumer(String consumerName, TestStatistics statistics) {
-            final MessageHandler<Integer, String> handler = createMessageHandler(consumerName, statistics);
+            final ConsumerRecordHandler<Integer, String> handler = createRecordHandler(consumerName, statistics);
             final Map<String, Object> configs = new HashMap<>();
             configs.put("bootstrap.servers", "localhost:9092");
             configs.put("client.id", consumerName);
@@ -127,7 +127,7 @@ public class Bootstrap {
 
         @Override
         public LcKafkaConsumer<Integer, String> buildConsumer(String consumerName, TestStatistics statistics) {
-            final MessageHandler<Integer, String> handler = createMessageHandler(consumerName, statistics);
+            final ConsumerRecordHandler<Integer, String> handler = createRecordHandler(consumerName, statistics);
             final Map<String, Object> configs = new HashMap<>();
             configs.put("bootstrap.servers", "localhost:9092");
             configs.put("client.id", consumerName);
@@ -146,7 +146,7 @@ public class Bootstrap {
         }
     }
 
-    private static MessageHandler<Integer, String> createMessageHandler(String consumerName, TestStatistics statistics) {
+    private static ConsumerRecordHandler<Integer, String> createRecordHandler(String consumerName, TestStatistics statistics) {
         return (record) -> {
             final String topic = record.topic();
             if (!statistics.recordReceivedRecord(record)) {

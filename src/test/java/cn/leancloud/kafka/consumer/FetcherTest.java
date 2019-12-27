@@ -36,7 +36,7 @@ public class FetcherTest {
                     defaultMsg);
     private static final long pollTimeout = 100;
     private MockConsumer<Object, Object> consumer;
-    private MessageHandler<Object, Object> messageHandler;
+    private ConsumerRecordHandler<Object, Object> consumerRecordHandler;
     private CommitPolicy<Object, Object> policy;
     private ExecutorService executorService;
     private Fetcher<Object, Object> fetcher;
@@ -45,7 +45,7 @@ public class FetcherTest {
     @Before
     public void setUp() throws Exception {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
-        messageHandler = mock(MessageHandler.class);
+        consumerRecordHandler = mock(ConsumerRecordHandler.class);
         policy = mock(CommitPolicy.class);
         executorService = ImmediateExecutorService.INSTANCE;
     }
@@ -61,7 +61,7 @@ public class FetcherTest {
     @Test
     public void testGracefulShutdown() throws Exception {
         executorService = mock(ExecutorService.class);
-        fetcher = new Fetcher<>(consumer, pollTimeout, messageHandler, executorService, policy, 0);
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, 0);
         fetcherThread = new Thread(fetcher);
 
         doNothing().when(executorService).execute(any(Runnable.class));
@@ -79,12 +79,12 @@ public class FetcherTest {
 
     @Test
     public void testHandleMsgFailed() throws Exception {
-        fetcher = new Fetcher<>(consumer, pollTimeout, messageHandler, executorService, policy, 10_000);
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, 10_000);
         fetcherThread = new Thread(fetcher);
 
         assignPartitions(consumer, toPartitions(singletonList(0)), 0L);
         consumer.addRecord(defaultTestingRecord);
-        doThrow(new RuntimeException("expected exception")).when(messageHandler).handleMessage(defaultTestingRecord);
+        doThrow(new RuntimeException("expected exception")).when(consumerRecordHandler).handleRecord(defaultTestingRecord);
 
         fetcherThread.start();
 
@@ -94,12 +94,12 @@ public class FetcherTest {
         verify(policy, times(1)).addPendingRecord(eq(defaultTestingRecord));
         verify(policy, never()).completeRecord(any());
         verify(policy, never()).tryCommit(anyBoolean());
-        verify(messageHandler, times(1)).handleMessage(defaultTestingRecord);
+        verify(consumerRecordHandler, times(1)).handleRecord(defaultTestingRecord);
     }
 
     @Test
     public void testNoPauseWhenMsgHandledFastEnough() throws Exception {
-        fetcher = new Fetcher<>(consumer, pollTimeout, messageHandler, executorService, policy, 10_000);
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, 10_000);
         fetcherThread = new Thread(fetcher);
 
         final CyclicBarrier barrier = new CyclicBarrier(2);
@@ -121,13 +121,13 @@ public class FetcherTest {
         verify(policy, times(1)).addPendingRecord(eq(defaultTestingRecord));
         verify(policy, times(1)).completeRecord(defaultTestingRecord);
         verify(policy, atLeastOnce()).tryCommit(anyBoolean());
-        verify(messageHandler, times(1)).handleMessage(defaultTestingRecord);
+        verify(consumerRecordHandler, times(1)).handleRecord(defaultTestingRecord);
     }
 
     @Test
     public void testPauseResume() throws Exception {
         final ExecutorService executors = Executors.newCachedThreadPool(new NamedThreadFactory("Testing-Pool"));
-        fetcher = new Fetcher<>(consumer, pollTimeout, messageHandler, executors, policy, 10_000);
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executors, policy, 10_000);
         fetcherThread = new Thread(fetcher);
 
         final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
@@ -141,7 +141,7 @@ public class FetcherTest {
             // wait until the main thread figure out that all the partitions was paused
             barrier.await();
             return null;
-        }).when(messageHandler).handleMessage(any());
+        }).when(consumerRecordHandler).handleRecord(any());
 
         // record complete partitions
         doAnswer(invocation -> {
@@ -159,9 +159,9 @@ public class FetcherTest {
 
         await().until(() -> consumer.paused().size() == pendingRecords.size());
         assertThat(consumer.paused()).isEqualTo(new HashSet<>(partitions));
-        // release all the message handler threads
+        // release all the record handler threads
         barrier.await();
-        // after the message was handled, the paused partition will be resumed eventually
+        // after the record was handled, the paused partition will be resumed eventually
         await().until(() -> consumer.paused().isEmpty());
 
         // close and verify
@@ -172,7 +172,7 @@ public class FetcherTest {
         verify(policy, times(pendingRecords.size())).addPendingRecord(any());
         verify(policy, times(pendingRecords.size())).completeRecord(any());
         verify(policy, times(1)).partialCommit();
-        verify(messageHandler, times(pendingRecords.size())).handleMessage(any());
+        verify(consumerRecordHandler, times(pendingRecords.size())).handleRecord(any());
 
         executors.shutdown();
     }
@@ -180,7 +180,7 @@ public class FetcherTest {
     @Test
     public void testPauseAndPartialResume() throws Exception {
         final ExecutorService executors = Executors.newCachedThreadPool();
-        fetcher = new Fetcher<>(consumer, pollTimeout, messageHandler, executors, policy, 0);
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executors, policy, 0);
         fetcherThread = new Thread(fetcher);
 
         final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
@@ -199,7 +199,7 @@ public class FetcherTest {
                 barrier.await();
             }
             return null;
-        }).when(messageHandler).handleMessage(any());
+        }).when(consumerRecordHandler).handleRecord(any());
 
         // record complete partitions
         doAnswer(invocation -> {
@@ -217,9 +217,9 @@ public class FetcherTest {
 
         await().until(() -> consumer.paused().size() == pendingRecords.size());
         assertThat(consumer.paused()).isEqualTo(new HashSet<>(partitions));
-        // release all the message handler threads
+        // release all the record handler threads
         barrier.await();
-        // half of the message will be handled and their corresponding partitions will be resumed
+        // half of the records will be handled and their corresponding partitions will be resumed
         await().until(() -> consumer.paused().size() == pendingRecords.size() / 2);
         assertThat(fetcher.pendingFutures()).hasSize(pendingRecords.size() / 2);
         assertThat(fetcher.pendingFutures().keySet()).containsExactlyInAnyOrderElementsOf(pendingRecords.subList(0, pendingRecords.size() / 2));
@@ -231,7 +231,7 @@ public class FetcherTest {
         verify(policy, times(pendingRecords.size())).addPendingRecord(any());
         verify(policy, times(pendingRecords.size() / 2)).completeRecord(any());
         verify(policy, times(1)).partialCommit();
-        verify(messageHandler, times(pendingRecords.size())).handleMessage(any());
+        verify(consumerRecordHandler, times(pendingRecords.size())).handleRecord(any());
 
         executors.shutdown();
     }

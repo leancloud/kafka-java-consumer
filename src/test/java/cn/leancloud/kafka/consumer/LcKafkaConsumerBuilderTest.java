@@ -14,6 +14,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 
+import static cn.leancloud.kafka.consumer.AutoCommitConsumerConfigs.AUTO_COMMIT_INTERVAL_MS;
+import static cn.leancloud.kafka.consumer.AutoCommitConsumerConfigs.MAX_POLL_INTERVAL_MS;
+import static cn.leancloud.kafka.consumer.BasicConsumerConfigs.AUTO_OFFSET_RESET;
+import static cn.leancloud.kafka.consumer.BasicConsumerConfigs.MAX_POLL_RECORDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -21,7 +25,7 @@ import static org.mockito.Mockito.mock;
 public class LcKafkaConsumerBuilderTest {
     private ExecutorService workerPool;
     private Map<String, Object> configs;
-    private MessageHandler<Object, Object> testingHandler;
+    private ConsumerRecordHandler<Object, Object> testingHandler;
     private Deserializer<Object> keyDeserializer;
     private Deserializer<Object> valueDeserializer;
 
@@ -32,7 +36,7 @@ public class LcKafkaConsumerBuilderTest {
         configs.put("bootstrap.servers", "localhost:9092");
         configs.put("group.id", "2614911922612339122");
 
-        testingHandler = mock(MessageHandler.class);
+        testingHandler = mock(ConsumerRecordHandler.class);
         keyDeserializer = mock(Deserializer.class);
         valueDeserializer = mock(Deserializer.class);
     }
@@ -57,16 +61,16 @@ public class LcKafkaConsumerBuilderTest {
     public void testNullMessageHandler() {
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, null))
                 .isInstanceOf(NullPointerException.class)
-                .hasMessage("messageHandler");
+                .hasMessage("consumerRecordHandler");
 
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, null, keyDeserializer, valueDeserializer))
                 .isInstanceOf(NullPointerException.class)
-                .hasMessage("messageHandler");
+                .hasMessage("consumerRecordHandler");
 
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
                 .messageHandler(null))
                 .isInstanceOf(NullPointerException.class)
-                .hasMessage("messageHandler");
+                .hasMessage("consumerRecordHandler");
     }
 
     @Test
@@ -137,8 +141,8 @@ public class LcKafkaConsumerBuilderTest {
 
     @Test
     public void testAutoConsumerWithoutMaxPollInterval() {
-        configs.put("max.poll.records", "10");
-        configs.put("auto.commit.interval.ms", "1000");
+        MAX_POLL_RECORDS.set(configs, 10);
+        AUTO_COMMIT_INTERVAL_MS.set(configs, 1000);
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
                 .buildAuto())
                 .isInstanceOf(IllegalArgumentException.class)
@@ -146,19 +150,9 @@ public class LcKafkaConsumerBuilderTest {
     }
 
     @Test
-    public void testAutoConsumerWithoutMaxPollRecords() {
-        configs.put("max.poll.interval.ms", "1000");
-        configs.put("auto.commit.interval.ms", "1000");
-        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
-                .buildAuto())
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("expect \"max.poll.records\"");
-    }
-
-    @Test
     public void testAutoConsumerWithoutAutoCommitInterval() {
-        configs.put("max.poll.records", "10");
-        configs.put("max.poll.interval.ms", "1000");
+        MAX_POLL_RECORDS.set(configs, 10);
+        MAX_POLL_INTERVAL_MS.set(configs, 1000);
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
                 .buildAuto())
                 .isInstanceOf(IllegalArgumentException.class)
@@ -167,10 +161,10 @@ public class LcKafkaConsumerBuilderTest {
 
     @Test
     public void testAutoConsumer() {
-        configs.put("max.poll.records", "10");
-        configs.put("max.poll.interval.ms", "1000");
-        configs.put("auto.commit.interval.ms", "1000");
-        configs.put("auto.offset.reset", "latest");
+        MAX_POLL_RECORDS.set(configs, 10);
+        MAX_POLL_INTERVAL_MS.set(configs, 1000);
+        AUTO_COMMIT_INTERVAL_MS.set(configs, 1000);
+        AUTO_OFFSET_RESET.set(configs, "latest");
         final LcKafkaConsumer<Object, Object> consumer = LcKafkaConsumerBuilder.newBuilder(configs, testingHandler)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .pollTimeoutMillis(1000)
@@ -184,7 +178,8 @@ public class LcKafkaConsumerBuilderTest {
 
     @Test
     public void testSyncConsumer() {
-        configs.put("auto.offset.reset", "latest");
+        AUTO_OFFSET_RESET.set(configs, "latest");
+        MAX_POLL_RECORDS.set(configs, 10);
         final LcKafkaConsumer<Object, Object> consumer = LcKafkaConsumerBuilder.newBuilder(configs, testingHandler)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .pollTimeout(Duration.ofMillis(1000))
@@ -199,7 +194,8 @@ public class LcKafkaConsumerBuilderTest {
 
     @Test
     public void testSyncWithoutWorkerPoolConsumer() {
-        configs.put("auto.offset.reset", "latest");
+        AUTO_OFFSET_RESET.set(configs, "latest");
+        MAX_POLL_RECORDS.set(configs, 10);
         final LcKafkaConsumer<Object, Object> consumer = LcKafkaConsumerBuilder.newBuilder(configs, testingHandler)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .pollTimeout(Duration.ofMillis(1000))
@@ -213,7 +209,8 @@ public class LcKafkaConsumerBuilderTest {
 
     @Test
     public void testASyncConsumer() {
-        configs.put("auto.offset.reset", "latest");
+        AUTO_OFFSET_RESET.set(configs, "latest");
+        MAX_POLL_RECORDS.set(configs, 10);
         final LcKafkaConsumer<Object, Object> consumer = LcKafkaConsumerBuilder.newBuilder(configs, testingHandler)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .pollTimeout(Duration.ofMillis(1000))
@@ -228,7 +225,8 @@ public class LcKafkaConsumerBuilderTest {
 
     @Test
     public void testPartialSyncConsumer() {
-        configs.put("auto.offset.reset", "latest");
+        AUTO_OFFSET_RESET.set(configs, "latest");
+        MAX_POLL_RECORDS.set(configs, 10);
         final LcKafkaConsumer<Object, Object> consumer = LcKafkaConsumerBuilder.newBuilder(configs, testingHandler)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .pollTimeout(Duration.ofMillis(1000))
@@ -243,7 +241,8 @@ public class LcKafkaConsumerBuilderTest {
 
     @Test
     public void testPartialAsyncConsumer() {
-        configs.put("auto.offset.reset", "latest");
+        AUTO_OFFSET_RESET.set(configs, "latest");
+        MAX_POLL_RECORDS.set(configs, 10);
         final LcKafkaConsumer<Object, Object> consumer = LcKafkaConsumerBuilder.newBuilder(configs, testingHandler)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .pollTimeout(Duration.ofMillis(1000))

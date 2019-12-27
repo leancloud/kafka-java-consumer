@@ -20,7 +20,7 @@ import static org.mockito.Mockito.*;
 
 public class LcKafkaConsumerTest {
     private static final List<String> testingTopics = Collections.singletonList("TestingTopic");
-    private MessageHandler<Object, Object> messageHandler;
+    private ConsumerRecordHandler<Object, Object> consumerRecordHandler;
     private Map<String, Object> configs;
     private ExecutorService workerPool;
     private LcKafkaConsumer<Object, Object> consumer;
@@ -28,11 +28,12 @@ public class LcKafkaConsumerTest {
     @Before
     public void setUp() throws Exception {
         workerPool = mock(ExecutorService.class);
-        messageHandler = mock(MessageHandler.class);
+        consumerRecordHandler = mock(ConsumerRecordHandler.class);
 
         configs = new HashMap<>();
         configs.put("bootstrap.servers", "localhost:9092");
         configs.put("auto.offset.reset", "earliest");
+        configs.put("max.poll.records", "10");
     }
 
     @After
@@ -42,7 +43,7 @@ public class LcKafkaConsumerTest {
 
     @Test
     public void testSubscribeWithEmptyTopics() {
-        consumer = LcKafkaConsumerBuilder.newBuilder(configs, messageHandler)
+        consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .buildSync();
         assertThatThrownBy(() -> consumer.subscribe(Collections.emptyList()))
@@ -53,7 +54,7 @@ public class LcKafkaConsumerTest {
     @Test
     public void testSubscribe() {
         final MockConsumer<Object, Object> kafkaConsumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
-        consumer = LcKafkaConsumerBuilder.newBuilder(configs, messageHandler)
+        consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
                 .mockKafkaConsumer(kafkaConsumer)
                 .buildSync();
         consumer.subscribe(testingTopics);
@@ -64,7 +65,7 @@ public class LcKafkaConsumerTest {
 
     @Test
     public void testSubscribedTwice() {
-        consumer = LcKafkaConsumerBuilder.newBuilder(configs, messageHandler)
+        consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .buildSync();
         consumer.subscribe(testingTopics);
@@ -75,7 +76,7 @@ public class LcKafkaConsumerTest {
 
     @Test
     public void testGracefulShutdown() throws Exception {
-        consumer = LcKafkaConsumerBuilder.newBuilder(configs, messageHandler)
+        consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
                 .workerPool(workerPool, true)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .buildSync();
@@ -92,7 +93,7 @@ public class LcKafkaConsumerTest {
 
     @Test
     public void testGracefulShutdownWithoutShutdownWorkerPool() throws Exception {
-        consumer = LcKafkaConsumerBuilder.newBuilder(configs, messageHandler)
+        consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
                 .workerPool(workerPool, false)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .buildSync();

@@ -7,6 +7,19 @@ import java.util.Collection;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * {@code LcKafkaConsumer} is a wrapper over {@link Consumer}. It will use {@link Consumer} to consume
+ * records from Kafka broker.
+ * <p>
+ * With {@link LcKafkaConsumer}, you can subscribe to several topics and handle all the records from these topic
+ * in a dedicated thread pool without warring polling timeout or session timeout due to the polling thread failed
+ * to poll spend too much time on process records
+ * <p>
+ * All the public methods in {@code LcKafkaConsumer} is thread safe.
+ *
+ * @param <K> the type of key for records consumed from Kafka
+ * @param <V> the type of value for records consumed from Kafka
+ */
 public final class LcKafkaConsumer<K, V> implements Closeable {
     enum State {
         INIT(0),
@@ -42,6 +55,13 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
         this.fetcherThread = new Thread(fetcher);
     }
 
+    /**
+     * Subscribe some Kafka topics to consume records from them.
+     *
+     * @param topics the topics to consume.
+     * @throws IllegalStateException    if this {@code LcKafkaConsumer} has closed or subscribed to some topics
+     * @throws IllegalArgumentException if the input {@code topics} is empty
+     */
     public synchronized void subscribe(Collection<String> topics) {
         if (topics.isEmpty()) {
             throw new IllegalArgumentException("subscribe empty topics");
@@ -95,7 +115,7 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
         return state == State.CLOSED;
     }
 
-    CommitPolicy<K,V> policy() {
+    CommitPolicy<K, V> policy() {
         return policy;
     }
 }

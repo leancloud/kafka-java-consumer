@@ -14,43 +14,50 @@ import java.util.concurrent.ExecutorService;
 import static cn.leancloud.kafka.consumer.BasicConsumerConfigs.ENABLE_AUTO_COMMIT;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * A builder used to create a {@link LcKafkaConsumer} which uses a {@link KafkaConsumer} to consume records
+ * from Kafka broker.
+ *
+ * @param <K> the type of key for records consumed from Kafka
+ * @param <V> the type of value for records consumed from Kafka
+ */
 public final class LcKafkaConsumerBuilder<K, V> {
     /**
      * Create a {@code LcKafkaConsumerBuilder} used to build {@link LcKafkaConsumer}.
      *
-     * @param kafkaConfigs   the kafka consumer configs. Please refer
+     * @param kafkaConfigs   the kafka configs for {@link KafkaConsumer}. Please refer
      *                       <a href="http://kafka.apache.org/documentation.html#consumerconfigs" >this document</a> for
      *                       valid configurations.
-     * @param messageHandler a {@link MessageHandler} to handle the consumed msg from kafka
+     * @param consumerRecordHandler a {@link ConsumerRecordHandler} to handle the consumed record from kafka
      * @return a new {@code LcKafkaConsumerBuilder}
      */
     public static <K, V> LcKafkaConsumerBuilder<K, V> newBuilder(Map<String, Object> kafkaConfigs,
-                                                                 MessageHandler<K, V> messageHandler) {
+                                                                 ConsumerRecordHandler<K, V> consumerRecordHandler) {
         requireNonNull(kafkaConfigs, "kafkaConfigs");
-        requireNonNull(messageHandler, "messageHandler");
-        return new LcKafkaConsumerBuilder<>(new HashMap<>(kafkaConfigs), messageHandler);
+        requireNonNull(consumerRecordHandler, "consumerRecordHandler");
+        return new LcKafkaConsumerBuilder<>(new HashMap<>(kafkaConfigs), consumerRecordHandler);
     }
 
     /**
      * Create a {@code LcKafkaConsumerBuilder} used to build {@link LcKafkaConsumer}.
      *
-     * @param kafkaConfigs      the kafka consumer configs. Please refer
+     * @param kafkaConfigs      the kafka configs for {@link KafkaConsumer}. Please refer
      *                          <a href="http://kafka.apache.org/documentation.html#consumerconfigs" >this document</a> for
      *                          valid configurations.
-     * @param messageHandler    a {@link MessageHandler} to handle the consumed msg from kafka
+     * @param consumerRecordHandler    a {@link ConsumerRecordHandler} to handle the consumed record from kafka
      * @param keyDeserializer   The deserializer for key that implements {@link Deserializer}
      * @param valueDeserializer The deserializer for value that implements {@link Deserializer}
      * @return a new {@code LcKafkaConsumerBuilder}
      */
     public static <K, V> LcKafkaConsumerBuilder<K, V> newBuilder(Map<String, Object> kafkaConfigs,
-                                                                 MessageHandler<K, V> messageHandler,
+                                                                 ConsumerRecordHandler<K, V> consumerRecordHandler,
                                                                  Deserializer<K> keyDeserializer,
                                                                  Deserializer<V> valueDeserializer) {
         requireNonNull(kafkaConfigs, "kafkaConfigs");
-        requireNonNull(messageHandler, "messageHandler");
+        requireNonNull(consumerRecordHandler, "consumerRecordHandler");
         requireNonNull(keyDeserializer, "keyDeserializer");
         requireNonNull(valueDeserializer, "valueDeserializer");
-        return new LcKafkaConsumerBuilder<>(new HashMap<>(kafkaConfigs), messageHandler, keyDeserializer, valueDeserializer);
+        return new LcKafkaConsumerBuilder<>(new HashMap<>(kafkaConfigs), consumerRecordHandler, keyDeserializer, valueDeserializer);
     }
 
     /**
@@ -68,7 +75,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
     private ExecutorService workerPool = ImmediateExecutorService.INSTANCE;
     private boolean shutdownWorkerPoolOnStop = false;
     private Map<String, Object> configs;
-    private MessageHandler<K, V> messageHandler;
+    private ConsumerRecordHandler<K, V> consumerRecordHandler;
     @Nullable
     private Consumer<K, V> consumer;
     @Nullable
@@ -79,18 +86,18 @@ public final class LcKafkaConsumerBuilder<K, V> {
     private CommitPolicy<K, V> policy;
 
     private LcKafkaConsumerBuilder(Map<String, Object> kafkaConsumerConfigs,
-                                   MessageHandler<K, V> messageHandler) {
-        this(kafkaConsumerConfigs, messageHandler, null, null);
+                                   ConsumerRecordHandler<K, V> consumerRecordHandler) {
+        this(kafkaConsumerConfigs, consumerRecordHandler, null, null);
     }
 
     private LcKafkaConsumerBuilder(Map<String, Object> kafkaConsumerConfigs,
-                                   MessageHandler<K, V> messageHandler,
+                                   ConsumerRecordHandler<K, V> consumerRecordHandler,
                                    @Nullable
-                                   Deserializer<K> keyDeserializer,
+                                           Deserializer<K> keyDeserializer,
                                    @Nullable
-                                   Deserializer<V> valueDeserializer) {
+                                           Deserializer<V> valueDeserializer) {
         this.configs = kafkaConsumerConfigs;
-        this.messageHandler = messageHandler;
+        this.consumerRecordHandler = consumerRecordHandler;
         this.keyDeserializer = keyDeserializer;
         this.valueDeserializer = valueDeserializer;
     }
@@ -131,13 +138,13 @@ public final class LcKafkaConsumerBuilder<K, V> {
         return this;
     }
 
-    public LcKafkaConsumerBuilder<K,V> gracefulShutdownTimeoutMillis(long gracefulShutdownMs) {
+    public LcKafkaConsumerBuilder<K, V> gracefulShutdownTimeoutMillis(long gracefulShutdownMs) {
         requireArgument(gracefulShutdownMs >= 0, "gracefulShutdownMillis: %s (expected >= 0)", gracefulShutdownMs);
         this.gracefulShutdownMillis = gracefulShutdownMs;
         return this;
     }
 
-    public LcKafkaConsumerBuilder<K,V> gracefulShutdownTimeout(Duration gracefulShutdownTimeout) {
+    public LcKafkaConsumerBuilder<K, V> gracefulShutdownTimeout(Duration gracefulShutdownTimeout) {
         requireNonNull(gracefulShutdownTimeout, "gracefulShutdownTimeout");
         this.gracefulShutdownMillis = gracefulShutdownTimeout.toMillis();
         return this;
@@ -158,14 +165,14 @@ public final class LcKafkaConsumerBuilder<K, V> {
     }
 
     /**
-     * Change the {@link MessageHandler} to handle the consumed msg from kafka.
+     * Change the {@link ConsumerRecordHandler} to handle the consumed record from kafka.
      *
-     * @param messageHandler the handler to handle consumed msg
+     * @param consumerRecordHandler the handler to handle consumed record
      * @return this
      */
-    public LcKafkaConsumerBuilder<K, V> messageHandler(MessageHandler<K, V> messageHandler) {
-        requireNonNull(messageHandler, "messageHandler");
-        this.messageHandler = messageHandler;
+    public LcKafkaConsumerBuilder<K, V> messageHandler(ConsumerRecordHandler<K, V> consumerRecordHandler) {
+        requireNonNull(consumerRecordHandler, "consumerRecordHandler");
+        this.consumerRecordHandler = consumerRecordHandler;
         return this;
     }
 
@@ -207,7 +214,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * while (true) {
      *     final ConsumerRecords<K, V> records = consumer.poll(pollTimeout);
      *     for (ConsumerRecord<K, V> record : records) {
-     *         handler.handleMessage(record.topic(), record.value());
+     *         handler.handleRecord(record.topic(), record.value());
      *     }
      * }
      * </pre>
@@ -216,9 +223,9 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * Please note that this consumer requires these kafka configs must be set, otherwise
      * {@link IllegalArgumentException} will be thrown:
      * <ol>
-     *  <li><code>max.poll.interval.ms</code></li>
-     *  <li><code>max.poll.records</code></li>
-     *  <li><code>auto.commit.interval.ms</code></li>
+     * <li><code>max.poll.interval.ms</code></li>
+     * <li><code>max.poll.records</code></li>
+     * <li><code>auto.commit.interval.ms</code></li>
      * </ol>
      * <p>
      * Though all of these configs have default values in kafka, we still require every user to set them specifically.
@@ -266,8 +273,8 @@ public final class LcKafkaConsumerBuilder<K, V> {
         return consumer;
     }
 
-    MessageHandler<K, V> getMessageHandler() {
-        return messageHandler;
+    ConsumerRecordHandler<K, V> getConsumerRecordHandler() {
+        return consumerRecordHandler;
     }
 
     ExecutorService getWorkerPool() {
