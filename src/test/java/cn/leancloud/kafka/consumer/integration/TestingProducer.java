@@ -64,11 +64,12 @@ public class TestingProducer implements Closeable {
             final Thread t = new Thread(worker);
             workerThreads.add(t);
             worker.future.thenApply(c -> {
-                int total = totalSentCount.addAndGet(c);
+                totalSentCount.addAndGet(c);
                 if (finishedWorkerCount.incrementAndGet() == concurrentThreadCount) {
                     future.complete(totalSentCount.get());
                 }
-                return total;
+
+                return c;
             });
             t.start();
         }
@@ -86,11 +87,11 @@ public class TestingProducer implements Closeable {
             final Thread t = new Thread(worker);
             workerThreads.add(t);
             worker.future.thenApply(c -> {
-                int total = totalSentCount.addAndGet(c);
+                totalSentCount.addAndGet(c);
                 if (finishedWorkerCount.incrementAndGet() == concurrentThreadCount) {
-                    future.complete(total);
+                    future.complete(totalSentCount.get());
                 }
-                return total;
+                return c;
             });
             t.start();
         }
@@ -103,7 +104,6 @@ public class TestingProducer implements Closeable {
         private final Predicate<ProducerWorker> needStop;
         private final String topic;
         private final CompletableFuture<Integer> future;
-        private int sentCount;
 
         ProducerWorker(String topic, Predicate<ProducerWorker> needStop) {
             this.topic = topic;
@@ -114,6 +114,7 @@ public class TestingProducer implements Closeable {
         @Override
         public void run() {
             try {
+                int sentCount = 0;
                 final String topic = this.topic;
                 final String name = Thread.currentThread().getName();
                 final Predicate<ProducerWorker> needStop = this.needStop;
@@ -135,7 +136,7 @@ public class TestingProducer implements Closeable {
                 }
 
                 future.complete(sentCount);
-                logger.info("Producer worker: {} stopped", name);
+                logger.info("Producer worker: {} stopped, sent: {} records", name, sentCount);
             } catch (Exception ex) {
                 logger.error("Producer worker got unexpected exception", ex);
             }
