@@ -49,8 +49,8 @@ public class TestingProducer implements Closeable {
             for (Thread t : workerThreads) {
                 t.join();
             }
-        } catch (Exception ex) {
-            //
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -66,7 +66,7 @@ public class TestingProducer implements Closeable {
             worker.future.thenApply(c -> {
                 int total = totalSentCount.addAndGet(c);
                 if (finishedWorkerCount.incrementAndGet() == concurrentThreadCount) {
-                    future.complete(total);
+                    future.complete(totalSentCount.get());
                 }
                 return total;
             });

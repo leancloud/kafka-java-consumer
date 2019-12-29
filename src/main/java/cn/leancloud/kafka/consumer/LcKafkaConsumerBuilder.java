@@ -4,6 +4,8 @@ import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.common.serialization.Deserializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import java.time.Duration;
@@ -22,6 +24,8 @@ import static java.util.Objects.requireNonNull;
  * @param <V> the type of value for records consumed from Kafka
  */
 public final class LcKafkaConsumerBuilder<K, V> {
+    private static final Logger logger = LoggerFactory.getLogger(LcKafkaConsumerBuilder.class);
+
     /**
      * Create a {@code LcKafkaConsumerBuilder} used to build {@link LcKafkaConsumer}.
      *
@@ -84,6 +88,8 @@ public final class LcKafkaConsumerBuilder<K, V> {
     private Deserializer<V> valueDeserializer;
     @Nullable
     private CommitPolicy<K, V> policy;
+    @Nullable
+    private Duration forceWholeCommitInterval;
 
     private LcKafkaConsumerBuilder(Map<String, Object> kafkaConsumerConfigs,
                                    ConsumerRecordHandler<K, V> consumerRecordHandler) {
@@ -109,14 +115,14 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * If 0, poll operation will return immediately with any records that are available currently in the buffer,
      * else returns empty.
      * <p>
-     * Must not be negative.
+     * Must not be negative. And the default {@code pollTimeoutMillis} is 100.
      *
-     * @param pollTimeoutMs the poll timeout in milliseconds
+     * @param pollTimeoutMillis the poll timeout in milliseconds
      * @return this
      */
-    public LcKafkaConsumerBuilder<K, V> pollTimeoutMillis(long pollTimeoutMs) {
-        requireArgument(pollTimeoutMs >= 0, "pollTimeoutMillis: %s (expect >= 0)", pollTimeoutMs);
-        this.pollTimeout = pollTimeoutMs;
+    public LcKafkaConsumerBuilder<K, V> pollTimeoutMillis(long pollTimeoutMillis) {
+        requireArgument(pollTimeoutMillis >= 0, "pollTimeoutMillis: %s (expect >= 0)", pollTimeoutMillis);
+        this.pollTimeout = pollTimeoutMillis;
         return this;
     }
 
@@ -127,6 +133,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * If 0, poll operation will return immediately with any records that are available currently in the buffer,
      * else returns empty.
      * <p>
+     * The default {@code pollTimeout} is 100 millis seconds.
      *
      * @param pollTimeout the poll timeout duration
      * @return this
@@ -140,6 +147,8 @@ public final class LcKafkaConsumerBuilder<K, V> {
     /**
      * Sets the amount of time to wait after calling {@link LcKafkaConsumer#close()} for
      * consumed records to handle before actually shutting down.
+     * <p>
+     * The default {@code gracefulShutdownTimeoutMillis} is 10_000.
      *
      * @param gracefulShutdownTimeoutMillis the graceful shutdown timeout in milliseconds
      * @return this
@@ -154,6 +163,8 @@ public final class LcKafkaConsumerBuilder<K, V> {
     /**
      * Sets the amount of time to wait after calling {@link LcKafkaConsumer#close()} for
      * consumed records to handle before actually shutting down.
+     * <p>
+     * The default {@code gracefulShutdownTimeout} is 10 seconds.
      *
      * @param gracefulShutdownTimeout the graceful shutdown timeout duration
      * @return this
@@ -168,6 +179,8 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * When using async consumer to commit offset asynchronously, this argument can force consumer to do a synchronous
      * commit after there's already this ({@code maxPendingAsyncCommits}) many async commits on the fly without
      * response from broker.
+     * <p>
+     * The default {@code maxPendingAsyncCommits} is 10.
      *
      * @param maxPendingAsyncCommits do a synchronous commit when pending async commits beyond this limit
      * @return this
@@ -176,6 +189,56 @@ public final class LcKafkaConsumerBuilder<K, V> {
         requireArgument(maxPendingAsyncCommits > 0,
                 "maxPendingAsyncCommits: %s (expect > 0)", maxPendingAsyncCommits);
         this.maxPendingAsyncCommits = maxPendingAsyncCommits;
+        return this;
+    }
+
+    /**
+     * The interval to commit all partitions and it's completed offsets to broker on a partial commit consumer.
+     * <p>
+     * This configuration is only valid and is required on partial commit consumer build with
+     * {@link LcKafkaConsumerBuilder#buildPartialSync()} or {@link LcKafkaConsumerBuilder#buildPartialAsync()}.
+     * For these kind of consumers, usually they only commit offsets of a partition when there was records consumed from
+     * that partition and all these consumed records was handled successfully. But we must periodically commit those
+     * subscribed partitions who have not have any records too. Otherwise, after commit offset log retention timeout,
+     * Kafka broker may forget where the current commit offset of these partition for the consumer are. Then, when the
+     * consumer crashed and recovered, if the consumer set "auto.offset.reset" configuration to "earliest", it may
+     * consume a already consumed record again. So please make sure that {@code forceWholeCommitIntervalInMillis}
+     * is within log retention time set on Kafka broker.
+     * <p>
+     * The default {@code forceWholeCommitInterval} is 1 hour.
+     *
+     * @param forceWholeCommitIntervalInMillis the interval in millis seconds to do a whole commit
+     * @return this
+     */
+    public LcKafkaConsumerBuilder<K, V> forceWholeCommitIntervalInMillis(long forceWholeCommitIntervalInMillis) {
+        requireArgument(forceWholeCommitIntervalInMillis > 0,
+                "forceWholeCommitIntervalInMillis: %s (expected > 0)", forceWholeCommitIntervalInMillis);
+
+        this.forceWholeCommitInterval = Duration.ofMillis(forceWholeCommitIntervalInMillis);
+        return this;
+    }
+
+    /**
+     * The interval to commit all partitions and it's completed offsets to broker on a partial commit consumer.
+     * <p>
+     * This configuration is only valid on partial commit consumer build with
+     * {@link LcKafkaConsumerBuilder#buildPartialSync()} or {@link LcKafkaConsumerBuilder#buildPartialAsync()}.
+     * For these kind of consumers, usually they only commit offsets of a partition when there was records consumed from
+     * that partition and all these consumed records was handled successfully. But we must periodically commit those
+     * subscribed partitions who have not have any records too. Otherwise, after commit offset log retention timeout,
+     * Kafka broker may forget where the current commit offset of these partition for the consumer are. Then, when the
+     * consumer crashed and recovered, if the consumer set "auto.offset.reset" configuration to "earliest", it may
+     * consume a already consumed record again. So please make sure that {@code forceWholeCommitInterval}
+     * is within log retention time set on Kafka broker.
+     * <p>
+     * The default {@code forceWholeCommitInterval} is 1 hour.
+     *
+     * @param forceWholeCommitInterval the interval to do a whole commit
+     * @return this
+     */
+    public LcKafkaConsumerBuilder<K, V> forceWholeCommitInterval(Duration forceWholeCommitInterval) {
+        requireNonNull(forceWholeCommitInterval, "forceWholeCommitInterval");
+        this.forceWholeCommitInterval = forceWholeCommitInterval;
         return this;
     }
 
@@ -304,8 +367,15 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * @return this
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildPartialSync() {
+        if (forceWholeCommitInterval == null) {
+            logger.warn("Force whole commit interval is not set for a partial commit consumer, the default " +
+                    "interval of 1 hour will be used.");
+            forceWholeCommitInterval = Duration.ofHours(1);
+        }
+        assert forceWholeCommitInterval != null;
+
         consumer = buildConsumer(false);
-        policy = new PartialSyncCommitPolicy<>(consumer);
+        policy = new PartialSyncCommitPolicy<>(consumer, forceWholeCommitInterval);
         return doBuild();
     }
 
@@ -365,8 +435,15 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * @return this
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildPartialAsync() {
+        if (forceWholeCommitInterval == null) {
+            logger.warn("Force whole commit interval is not set for a partial commit consumer, the default " +
+                    "interval of 30 seconds will be used.");
+            forceWholeCommitInterval = Duration.ofSeconds(30);
+        }
+        assert forceWholeCommitInterval != null;
+
         consumer = buildConsumer(false);
-        policy = new PartialAsyncCommitPolicy<>(consumer, maxPendingAsyncCommits);
+        policy = new PartialAsyncCommitPolicy<>(consumer, forceWholeCommitInterval, maxPendingAsyncCommits);
         return doBuild();
     }
 

@@ -26,7 +26,7 @@ class TestingUtils {
                 .collect(toList());
     }
 
-    static void assignPartitions(MockConsumer<?, ?> consumer, List<TopicPartition> partitions, long offsets) {
+    static void assignPartitions(MockConsumer<?, ?> consumer, Collection<TopicPartition> partitions, long offsets) {
         final Map<TopicPartition, Long> partitionOffset = partitions
                 .stream()
                 .collect(toMap(Function.identity(), (p) -> offsets));
