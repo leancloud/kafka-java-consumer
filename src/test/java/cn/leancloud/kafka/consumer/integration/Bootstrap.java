@@ -150,9 +150,11 @@ public class Bootstrap {
         return (record) -> {
             final String topic = record.topic();
             if (!statistics.recordReceivedRecord(record)) {
-                logger.info("{} receive duplicate msg from {} with value: {}", consumerName, topic, record.value());
+                logger.info("{} receive duplicate msg from {} with value: {} at {}",
+                        consumerName, topic, record.value(), record.offset());
             } else {
-                logger.debug("{} receive msg from {} with value: {}", consumerName, topic, record.value());
+                logger.info("{} receive msg from {} with value: {} at {}",
+                        consumerName, topic, record.value(), record.offset());
             }
         };
     }

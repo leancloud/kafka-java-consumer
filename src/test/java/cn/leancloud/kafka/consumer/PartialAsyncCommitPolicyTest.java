@@ -7,6 +7,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.stream.IntStream;
 
@@ -26,7 +27,7 @@ public class PartialAsyncCommitPolicyTest {
     @Before
     public void setUp() {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
-        policy = new PartialAsyncCommitPolicy<>(consumer, defaultMaxPendingAsyncCommits);
+        policy = new PartialAsyncCommitPolicy<>(consumer, Duration.ofSeconds(30), defaultMaxPendingAsyncCommits);
         partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         pendingRecords = preparePendingRecords(partitions, 1);
     }
@@ -106,7 +107,7 @@ public class PartialAsyncCommitPolicyTest {
         doNothing().when(mockConsumer).commitAsync(any());
 
         final int asyncCommitTimes = pendingRecords.size() - 1;
-        policy = new PartialAsyncCommitPolicy<>(mockConsumer, asyncCommitTimes);
+        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ofSeconds(30), asyncCommitTimes);
 
         final Set<TopicPartition> partitionsToResume = new HashSet<>();
         for (ConsumerRecord<Object, Object> record : pendingRecords.subList(0, asyncCommitTimes)) {
@@ -135,7 +136,7 @@ public class PartialAsyncCommitPolicyTest {
         final Consumer<Object, Object> mockConsumer = Mockito.mock(Consumer.class);
         doNothing().when(mockConsumer).commitAsync(any());
 
-        policy = new PartialAsyncCommitPolicy<>(mockConsumer, 10);
+        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ofSeconds(30), 10);
 
         final Set<TopicPartition> partitionsToResume = new HashSet<>();
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
@@ -166,7 +167,7 @@ public class PartialAsyncCommitPolicyTest {
             return null;
         }).when(mockConsumer).commitAsync(any(), any());
 
-        policy = new PartialAsyncCommitPolicy<>(mockConsumer, 10);
+        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ofSeconds(30), 10);
 
         // a failed async commit on the first time
         final ConsumerRecord<Object, Object> triggerFailedRecord = pendingRecords.get(0);

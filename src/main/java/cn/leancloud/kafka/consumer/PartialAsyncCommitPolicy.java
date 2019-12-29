@@ -6,17 +6,18 @@ import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.*;
 
-final class PartialAsyncCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
+final class PartialAsyncCommitPolicy<K, V> extends AbstractPartialCommitPolicy<K, V> {
     private static final Logger logger = LoggerFactory.getLogger(PartialAsyncCommitPolicy.class);
 
     private final int maxPendingAsyncCommits;
     private int pendingAsyncCommitCounter;
     private boolean forceSync;
 
-    PartialAsyncCommitPolicy(Consumer<K, V> consumer, int maxPendingAsyncCommits) {
-        super(consumer);
+    PartialAsyncCommitPolicy(Consumer<K, V> consumer, Duration forceWholeCommitInterval, int maxPendingAsyncCommits) {
+        super(consumer, forceWholeCommitInterval);
         this.maxPendingAsyncCommits = maxPendingAsyncCommits;
     }
 
@@ -28,13 +29,13 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
 
         final Set<TopicPartition> partitions = getCompletedPartitions(noPendingRecords);
         if (forceSync || pendingAsyncCommitCounter >= maxPendingAsyncCommits) {
-            consumer.commitSync(completedTopicOffsets);
+            consumer.commitSync(offsetsToPartialCommit());
             pendingAsyncCommitCounter = 0;
             forceSync = false;
             clearCachedCompletedPartitionsRecords(partitions, noPendingRecords);
         } else {
             ++pendingAsyncCommitCounter;
-            consumer.commitAsync(completedTopicOffsets, (offsets, exception) -> {
+            consumer.commitAsync(offsetsToPartialCommit(), (offsets, exception) -> {
                 --pendingAsyncCommitCounter;
                 assert pendingAsyncCommitCounter >= 0 : "actual: " + pendingAsyncCommitCounter;
                 if (exception != null) {

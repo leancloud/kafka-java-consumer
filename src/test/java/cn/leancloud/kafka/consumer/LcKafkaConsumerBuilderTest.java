@@ -100,6 +100,22 @@ public class LcKafkaConsumerBuilderTest {
     }
 
     @Test
+    public void testNegativeForceWholeCommitInterval() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .forceWholeCommitIntervalInMillis(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("forceWholeCommitIntervalInMillis");
+    }
+
+    @Test
+    public void testNullForceWholeCommitInterval() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .forceWholeCommitInterval(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("forceWholeCommitInterval");
+    }
+
+    @Test
     public void testNegativeMaxPendingAsyncCommits() {
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
                 .maxPendingAsyncCommits(-1 * ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE)))
@@ -216,6 +232,7 @@ public class LcKafkaConsumerBuilderTest {
                 .pollTimeout(Duration.ofMillis(1000))
                 .maxPendingAsyncCommits(100)
                 .workerPool(workerPool, false)
+                .forceWholeCommitInterval(Duration.ofHours(1))
                 .buildPartialSync();
 
         assertThat(consumer).isNotNull();
@@ -232,6 +249,7 @@ public class LcKafkaConsumerBuilderTest {
                 .pollTimeout(Duration.ofMillis(1000))
                 .maxPendingAsyncCommits(100)
                 .workerPool(workerPool, false)
+                .forceWholeCommitIntervalInMillis(1000)
                 .buildPartialAsync();
 
         assertThat(consumer).isNotNull();

@@ -9,6 +9,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -23,7 +24,7 @@ public class PartialSyncCommitPolicyTest {
     @Before
     public void setUp() {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
-        policy = new PartialSyncCommitPolicy<>(consumer);
+        policy = new PartialSyncCommitPolicy<>(consumer, Duration.ofSeconds(30));
     }
 
     @After

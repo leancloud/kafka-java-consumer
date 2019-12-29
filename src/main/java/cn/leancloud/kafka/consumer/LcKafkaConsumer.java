@@ -115,7 +115,7 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
                 workerPool.awaitTermination(1, TimeUnit.DAYS);
             }
         } catch (InterruptedException ex) {
-            // ignore
+            Thread.currentThread().interrupt();
         }
     }
 
