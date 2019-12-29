@@ -2,18 +2,19 @@ package cn.leancloud.kafka.consumer.integration;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public final class TestStatistics {
+final class TestStatistics {
     private final Set<String> receivedRecords;
     private final AtomicInteger duplicateRecordsCounter;
+    private final AtomicInteger totalSentCounter;
 
     TestStatistics() {
         this.receivedRecords = ConcurrentHashMap.newKeySet();
         this.duplicateRecordsCounter = new AtomicInteger();
+        this.totalSentCounter = new AtomicInteger();
     }
 
     boolean recordReceivedRecord(ConsumerRecord<Integer, String> record) {
@@ -24,6 +25,10 @@ public final class TestStatistics {
         return true;
     }
 
+    int recordTotalSent(int sent) {
+        return totalSentCounter.addAndGet(sent);
+    }
+
     int getReceiveRecordsCount() {
         return receivedRecords.size();
     }
@@ -32,30 +37,13 @@ public final class TestStatistics {
         return duplicateRecordsCounter.get();
     }
 
+    int getTotalSentCount() {
+        return totalSentCounter.get();
+    }
+
     void clear() {
         receivedRecords.clear();
         duplicateRecordsCounter.set(0);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        final TestStatistics that = (TestStatistics) o;
-        return Objects.equals(receivedRecords, that.receivedRecords) &&
-                Objects.equals(duplicateRecordsCounter, that.duplicateRecordsCounter);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(receivedRecords, duplicateRecordsCounter);
-    }
-
-    @Override
-    public String toString() {
-        return "TestStatistics{" +
-                "receivedRecords=" + receivedRecords +
-                ", duplicateRecordsCounter=" + duplicateRecordsCounter +
-                '}';
+        totalSentCounter.set(0);
     }
 }
