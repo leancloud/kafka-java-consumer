@@ -3,7 +3,7 @@
 [![Build Status](https://api.travis-ci.org/leancloud/kafka-java-consumer.svg?branch=master)](https://travis-ci.org/leancloud/kafka-java-consumer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Kafka is a greate lib which is very versatile and flexible, but many things may go wrong if you use it without great care and a good understanding about Kafka internals.  Next we will talk about some pitfalls on the consumer side which are easy to encounter. 
+Kafka is a greate lib which is very versatile and flexible, but many things may go wrong if you use it without great care and a good understanding about Kafka internals.  Next we will talk about some pitfalls on the consumer side which are easy to encounter with. 
 
 Usually, after we have subscribed the consumer to some topics, we need a loop to do these things: 
 
@@ -15,7 +15,7 @@ We need to call `poll` constantly and ensure that the interval between each call
 
 Kafka provides a synchronous and a asynchronous way to commit offset of records. In addition to them, Kafka also provide way to commit for specific partition and offset, and way to commit all the records fetched at once.We should remember to commit all the processed records from a partition before this partition is revoked. We should remember to commit all the processed records before the consuemr shutdown. If we commit offset for a specific record, we should remember to plus one to the offset of that record, which means assuming the record to commit have partition 0 and offset 100, we should commit partition 0 to 101 instead of 100, otherwise that processed records will be fetched again. If a consumer were assigned a parition which have no records for a long time, we should still remember to commit the committed offset of that partition periodically, otherwise after the commit log of that partition was removed from broker, because of retention timeout, broker will not remember where the commit offset of that partition for the consumer was. If the consumer set Kafka consumer configuration "auto.offset.reset" to "earliest", the cosumer will poll the records it processed and committed after a reboot.  
 
-All in all, Kafka is not a tool which can be used without thinking and researching. The purpose of this lib is to flatten these pits. With this lib, you can consume records from a subscribed topic and process them more safely and easily.
+All in all, Kafka is not a tool which can be used without thinking and doing some research. The purpose of this lib is to flatten these pits. With this lib, you can consume records from a subscribed topic and process them more safely and easily.
 
 ## Usage
 
