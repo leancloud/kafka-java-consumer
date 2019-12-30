@@ -22,7 +22,10 @@ abstract class AbstractPartialCommitPolicy<K, V> extends AbstractCommitPolicy<K,
         if (needWholeCommit()) {
             final Map<TopicPartition, OffsetAndMetadata> ret = new HashMap<>(completedTopicOffsets);
             for (TopicPartition partition : consumer.assignment()) {
-                ret.putIfAbsent(partition, consumer.committed(partition));
+                final OffsetAndMetadata offset = consumer.committed(partition);
+                if (offset != null) {
+                    ret.putIfAbsent(partition, offset);
+                }
             }
             nextWholeCommitNanos = nextForceWholeCommitTime(forceWholeCommitInterval);
             return ret;
