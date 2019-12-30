@@ -71,4 +71,7 @@ consumer.close()
 
 For all the APIs and descriptions of all the kinds of consumers, please refer to the Java Doc.
 
+## License
+
+Copyright 2019 LeanCloud. Released under the [MIT License](https://github.com/leancloud/filter-service/blob/master/LICENSE.md).
 
