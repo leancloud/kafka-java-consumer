@@ -45,10 +45,10 @@ Next, we need to choose the type of consumer to use. We have five kinds of consu
 commit policy | description
 ------ | ------------
 automatic commit | Commit offsets of records consumed from kafka automatically in a fixed interval. 
-sync commit | Commit offsets synchronously only when all the consumed records has been handled. 
-async commit | Commit offsets asynchronously when all the consumed records has been handled. If there are too many pending async commit requests or last async commit request failed, it'll switch to synchronous mode and switch back when the next synchoronous commit success.
-partial sync commit | Whenever there's any handled consumer records, only commit all the handled records to broker synchronously. Leave those records still handling until they are done.
-partial async commit | whenever there's any handled consumer records, commit all the handled records to broker asynchronously. Leave those records still handling until they are done. If there are too many pending async commit requests or last async commit request failed, it'll switch to synchronous mode and switch back when the next synchoronous commit success.
+sync commit | Commit offsets synchronously only when all the fetched records have been processed. 
+async commit | Commit offsets asynchronously only when all the fetched records have been processed. If there are too many pending async commit requests or the last async commit request was failed, it'll switch to synchronous mode to commit synchronously and switch back when the next synchoronous commit success.
+partial sync commit | Whenever there is a processed consumer record, only those records that have already been processed are committed synchronously, leaving the ones that have not been processed yet to be committed. 
+partial async commit | Whenever there is a processed consumer record, only those records that have already been processed are committed asynchronously, leaving the ones that have not been processed yet to be committed. If there are too many pending async commit requests or the last async commit request was failed, it'll switch to synchronous mode to commit synchronously and switch back when the next synchoronous commit success.
 
 Taking sync-committing consumer as an example, you can create a consumer with a thread pool and subscribe it to a topic like this:
 
