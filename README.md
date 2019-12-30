@@ -44,7 +44,7 @@ Next, we need to choose the type of consumer to use. We have five kinds of consu
 
 commit policy | description
 ------ | ------------
-automatic commit | Commit offsets of records consumed from kafka automatically in a fixed interval. 
+automatic commit | Commit offsets of records fetched from kafka automatically in a fixed interval. 
 sync commit | Commit offsets synchronously only when all the fetched records have been processed. 
 async commit | Commit offsets asynchronously only when all the fetched records have been processed. If there are too many pending async commit requests or the last async commit request was failed, it'll switch to synchronous mode to commit synchronously and switch back when the next synchoronous commit success.
 partial sync commit | Whenever there is a processed consumer record, only those records that have already been processed are committed synchronously, leaving the ones that have not been processed yet to be committed. 
