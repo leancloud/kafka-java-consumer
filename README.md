@@ -1,7 +1,9 @@
 # Kafka Java Consumer
 
 [![Build Status](https://api.travis-ci.org/leancloud/kafka-java-consumer.svg?branch=master)](https://travis-ci.org/leancloud/kafka-java-consumer)
+[![Coverage Status](https://codecov.io/gh/leancloud/kafka-java-consumer/branch/master/graph/badge.svg)](https://codecov.io/gh/leancloud/kafka-java-consumer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Maven](https://img.shields.io/github/release/leancloud/kafka-java-consumer.svg)](https://github.com/leancloud/kafka-java-consumer/releases)
 
 Kafka is a greate lib which is very versatile and flexible, but many things may go wrong if you use it without great care and a good understanding about Kafka internals.  Next we will talk about some pitfalls on the consumer side which are easy to encounter with. 
 
