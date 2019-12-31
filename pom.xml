@@ -54,6 +54,7 @@
         <maven.javadoc.skip>true</maven.javadoc.skip>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
+        <module.jacoco.skip>true</module.jacoco.skip>
         <project.build.sourceEncoding>utf-8</project.build.sourceEncoding>
         <skipTests>false</skipTests>
     </properties>
@@ -240,6 +241,28 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <configuration>
+                    <skip>${module.jacoco.skip}</skip>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>default-prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>default-report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report-aggregate</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
@@ -250,6 +273,7 @@
             <properties>
                 <skipTests>true</skipTests>
                 <maven.javadoc.skip>true</maven.javadoc.skip>
+                <module.jacoco.skip>true</module.jacoco.skip>
             </properties>
         </profile>
         <profile>
@@ -257,6 +281,7 @@
             <properties>
                 <dependency.test.skip>false</dependency.test.skip>
                 <maven.javadoc.skip>true</maven.javadoc.skip>
+                <module.jacoco.skip>false</module.jacoco.skip>
             </properties>
         </profile>
         <!-- GPG Signature on release -->
@@ -268,6 +293,9 @@
                     <value>true</value>
                 </property>
             </activation>
+            <properties>
+                <maven.javadoc.skip>false</maven.javadoc.skip>
+            </properties>
             <build>
                 <plugins>
                     <plugin>
