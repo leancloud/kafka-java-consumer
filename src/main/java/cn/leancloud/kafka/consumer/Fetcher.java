@@ -138,6 +138,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         final long start = System.currentTimeMillis();
         long remain = gracefulShutdownMillis;
         try {
+            consumer.unsubscribe();
             for (Future<ConsumerRecord<K, V>> future : pendingFutures.values()) {
                 try {
                     if (remain > 0) {
@@ -153,6 +154,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
             processCompletedRecords();
         } catch (InterruptedException ex) {
             logger.warn("Graceful shutdown was interrupted.");
+            Thread.currentThread().interrupt();
         } catch (ExecutionException ex) {
             logger.error("Handle message got unexpected exception. Continue shutdown without wait handling message done.", ex);
         }

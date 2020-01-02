@@ -75,6 +75,7 @@ public class FetcherTest {
         fetcherThread.join();
         assertThat(fetcher.pendingFutures()).isEmpty();
         verify(policy, times(1)).partialCommit();
+        assertThat(consumer.subscription()).isEmpty();
     }
 
     @Test
