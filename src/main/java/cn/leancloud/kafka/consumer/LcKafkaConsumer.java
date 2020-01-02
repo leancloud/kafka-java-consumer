@@ -102,7 +102,6 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
      * @param pattern {@link Pattern} to subscribe to.
      * @throws IllegalStateException    if this {@code LcKafkaConsumer} has closed or subscribed to some topics
      * @throws NullPointerException     if the input {@code pattern} is null
-     * @throws IllegalArgumentException if the input {@code pattern} is null
      */
     public synchronized void subscribe(Pattern pattern) {
         requireNonNull(pattern, "pattern");
