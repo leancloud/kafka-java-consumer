@@ -11,10 +11,12 @@ import org.junit.Test;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.IntStream;
 
 import static cn.leancloud.kafka.consumer.TestingUtils.*;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.IntStream.range;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class PartialSyncCommitPolicyTest {
@@ -34,18 +36,23 @@ public class PartialSyncCommitPolicyTest {
 
     @Test
     public void testNoCompleteRecords() {
+        final long nextRecommitNanos = policy.nextRecommitNanos();
         final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
-        preparePendingRecords(partitions, 1);
+        assignPartitions(consumer, partitions, 0L);
+        generateConsumedRecords(consumer, partitions, 1);
         assertThat(policy.tryCommit(true)).isEmpty();
         for (TopicPartition partition : partitions) {
             assertThat(consumer.committed(partition)).isNull();
         }
+        assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
     }
 
     @Test
     public void testPartialCommit() {
+        final long nextRecommitNanos = policy.nextRecommitNanos();
         final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
-        final List<ConsumerRecord<Object, Object>> pendingRecords = preparePendingRecords(partitions, 2);
+        assignPartitions(consumer, partitions, 0L);
+        final List<ConsumerRecord<Object, Object>> pendingRecords = generateConsumedRecords(consumer, partitions, 2);
         // two records for each partitions
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
             policy.addPendingRecord(record);
@@ -74,13 +81,16 @@ public class PartialSyncCommitPolicyTest {
         }
 
         assertThat(policy.completedTopicOffsets()).isEmpty();
+        assertThat(policy.nextRecommitNanos()).isGreaterThan(nextRecommitNanos);
     }
 
     @Test
     public void testNoPendingFuturesLeft() {
+        final long nextRecommitNanos = policy.nextRecommitNanos();
         final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
-        final List<ConsumerRecord<Object, Object>> pendingRecords = preparePendingRecords(partitions, 2);
+        assignPartitions(consumer, partitions, 0L);
         // two records for each partitions
+        final List<ConsumerRecord<Object, Object>> pendingRecords = generateConsumedRecords(consumer, partitions,2);
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
             policy.addPendingRecord(record);
             policy.completeRecord(record);
@@ -95,13 +105,35 @@ public class PartialSyncCommitPolicyTest {
 
         assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
         assertThat(policy.completedTopicOffsets()).isEmpty();
+        assertThat(policy.nextRecommitNanos()).isGreaterThan(nextRecommitNanos);
     }
 
-    private List<ConsumerRecord<Object, Object>> preparePendingRecords(List<TopicPartition> partitions, int size) {
-        final List<ConsumerRecord<Object, Object>> pendingRecords = prepareConsumerRecords(partitions, 1, size);
-        assignPartitions(consumer, partitions, 0L);
-        fireConsumerRecords(consumer, pendingRecords);
-        consumer.poll(0);
-        return pendingRecords;
+    @Test
+    public void testRecommit() throws Exception{
+        policy = new PartialSyncCommitPolicy<>(consumer, Duration.ofMillis(200));
+        long nextRecommitNanos = policy.nextRecommitNanos();
+        assignPartitions(consumer, toPartitions(range(0, 30).boxed().collect(toList())), 0L);
+
+        final List<ConsumerRecord<Object, Object>> prevRecords = generateConsumedRecords(consumer, toPartitions(range(0, 10).boxed().collect(toList())), 10);
+        final Map<TopicPartition, OffsetAndMetadata> previousCommitOffsets = buildCommitOffsets(prevRecords);
+        addCompleteRecordsInPolicy(policy, prevRecords);
+        assertThat(policy.tryCommit(true))
+                .containsExactlyInAnyOrderElementsOf(toPartitions(range(0, 10).boxed().collect(toList())));
+        assertThat(policy.nextRecommitNanos()).isGreaterThan(nextRecommitNanos);
+
+        Thread.sleep(200);
+        nextRecommitNanos = policy.nextRecommitNanos();
+        final List<ConsumerRecord<Object, Object>> newRecords = generateConsumedRecords(consumer, toPartitions(range(10, 20).boxed().collect(toList())), 10);
+        final Map<TopicPartition, OffsetAndMetadata> newCommitOffsets = buildCommitOffsets(newRecords);
+        newCommitOffsets.putAll(previousCommitOffsets);
+
+        addCompleteRecordsInPolicy(policy, newRecords);
+        assertThat(policy.tryCommit(false))
+                .containsExactlyInAnyOrderElementsOf(toPartitions(range(10, 20).boxed().collect(toList())));
+
+        for (Map.Entry<TopicPartition, OffsetAndMetadata> entry : newCommitOffsets.entrySet()) {
+            assertThat(consumer.committed(entry.getKey())).isEqualTo(entry.getValue());
+        }
+        assertThat(policy.nextRecommitNanos()).isGreaterThan(nextRecommitNanos);
     }
 }

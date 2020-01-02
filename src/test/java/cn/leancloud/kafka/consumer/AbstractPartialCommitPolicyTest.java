@@ -52,23 +52,23 @@ public class AbstractPartialCommitPolicyTest {
 
         final Map<TopicPartition, OffsetAndMetadata> completeOffsets = buildCommitOffsets(completedRecords);
 
-        assertThat(policy.offsetsToPartialCommit()).isEqualTo(completeOffsets);
+        assertThat(policy.offsetsForPartialCommit()).isEqualTo(completeOffsets);
     }
 
     @Test
-    public void testWholeCommit() throws Exception {
+    public void testRecommit() throws Exception {
         policy = new TestingPartialCommitPolicy(consumer, Duration.ofMillis(200));
         final Map<TopicPartition, OffsetAndMetadata> previousCommitOffsets =
                 commitRecords(completeRecords(prepareConsumerRecords(toPartitions(range(0, 10).boxed().collect(toList())), 1, 10)));
 
-        policy.offsetsToPartialCommit().clear();
+        policy.offsetsForPartialCommit().clear();
         policy.topicOffsetHighWaterMark().clear();
         final Map<TopicPartition, OffsetAndMetadata> newOffsetsToCommit =
                 buildCommitOffsets(completeRecords(prepareConsumerRecords(toPartitions(range(10, 20).boxed().collect(toList())), 1, 10)));
 
 
         Thread.sleep(200);
-        assertThat(policy.offsetsToPartialCommit())
+        assertThat(policy.offsetsForPartialCommit())
                 .hasSize(previousCommitOffsets.size() + newOffsetsToCommit.size())
                 .containsAllEntriesOf(previousCommitOffsets)
                 .containsAllEntriesOf(newOffsetsToCommit);

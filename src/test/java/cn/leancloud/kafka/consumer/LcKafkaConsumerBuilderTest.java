@@ -100,19 +100,19 @@ public class LcKafkaConsumerBuilderTest {
     }
 
     @Test
-    public void testNegativeForceWholeCommitInterval() {
+    public void testNegativeRecommitInterval() {
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
-                .forceWholeCommitIntervalInMillis(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
+                .recommitIntervalInMillis(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("forceWholeCommitIntervalInMillis");
+                .hasMessageContaining("recommitIntervalInMillis");
     }
 
     @Test
-    public void testNullForceWholeCommitInterval() {
+    public void testNullRecommitInterval() {
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
-                .forceWholeCommitInterval(null))
+                .recommitInterval(null))
                 .isInstanceOf(NullPointerException.class)
-                .hasMessage("forceWholeCommitInterval");
+                .hasMessage("recommitInterval");
     }
 
     @Test
@@ -185,6 +185,7 @@ public class LcKafkaConsumerBuilderTest {
                 .pollTimeout(Duration.ofMillis(1000))
                 .maxPendingAsyncCommits(100)
                 .workerPool(workerPool, false)
+                .recommitInterval(Duration.ofMinutes(20))
                 .buildSync();
 
         assertThat(consumer).isNotNull();
@@ -200,6 +201,7 @@ public class LcKafkaConsumerBuilderTest {
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .pollTimeout(Duration.ofMillis(1000))
                 .maxPendingAsyncCommits(100)
+                .recommitInterval(Duration.ofMinutes(20))
                 .buildSync();
 
         assertThat(consumer).isNotNull();
@@ -208,7 +210,7 @@ public class LcKafkaConsumerBuilderTest {
     }
 
     @Test
-    public void testASyncConsumer() {
+    public void testAsyncConsumer() {
         AUTO_OFFSET_RESET.set(configs, "latest");
         MAX_POLL_RECORDS.set(configs, 10);
         final LcKafkaConsumer<Object, Object> consumer = LcKafkaConsumerBuilder.newBuilder(configs, testingHandler)
@@ -216,6 +218,7 @@ public class LcKafkaConsumerBuilderTest {
                 .pollTimeout(Duration.ofMillis(1000))
                 .maxPendingAsyncCommits(100)
                 .workerPool(workerPool, false)
+                .recommitInterval(Duration.ofMinutes(20))
                 .buildAsync();
 
         assertThat(consumer).isNotNull();
@@ -232,7 +235,7 @@ public class LcKafkaConsumerBuilderTest {
                 .pollTimeout(Duration.ofMillis(1000))
                 .maxPendingAsyncCommits(100)
                 .workerPool(workerPool, false)
-                .forceWholeCommitInterval(Duration.ofHours(1))
+                .recommitInterval(Duration.ofHours(1))
                 .buildPartialSync();
 
         assertThat(consumer).isNotNull();
@@ -249,7 +252,6 @@ public class LcKafkaConsumerBuilderTest {
                 .pollTimeout(Duration.ofMillis(1000))
                 .maxPendingAsyncCommits(100)
                 .workerPool(workerPool, false)
-                .forceWholeCommitIntervalInMillis(1000)
                 .buildPartialAsync();
 
         assertThat(consumer).isNotNull();

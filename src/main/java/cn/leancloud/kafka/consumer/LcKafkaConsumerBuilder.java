@@ -89,7 +89,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
     @Nullable
     private CommitPolicy<K, V> policy;
     @Nullable
-    private Duration forceWholeCommitInterval;
+    private Duration recommitInterval;
 
     private LcKafkaConsumerBuilder(Map<String, Object> kafkaConsumerConfigs,
                                    ConsumerRecordHandler<K, V> consumerRecordHandler) {
@@ -193,52 +193,56 @@ public final class LcKafkaConsumerBuilder<K, V> {
     }
 
     /**
-     * The interval to commit all partitions and it's completed offsets to broker on a partial commit consumer.
+     * The interval to commit all partitions and it's completed offsets to broker on a non-automatic commit consumer.
      * <p>
-     * This configuration is only valid and is required on partial commit consumer build with
+     * This configuration is only valid and is required on a non-automatic commit consumer build with
+     * {@link LcKafkaConsumerBuilder#buildSync()}, {@link LcKafkaConsumerBuilder#buildAsync()},
      * {@link LcKafkaConsumerBuilder#buildPartialSync()} or {@link LcKafkaConsumerBuilder#buildPartialAsync()}.
      * For these kind of consumers, usually they only commit offsets of a partition when there was records consumed from
      * that partition and all these consumed records was handled successfully. But we must periodically commit those
-     * subscribed partitions who have not have any records too. Otherwise, after commit offset log retention timeout,
-     * Kafka broker may forget where the current commit offset of these partition for the consumer are. Then, when the
-     * consumer crashed and recovered, if the consumer set "auto.offset.reset" configuration to "earliest", it may
-     * consume a already consumed record again. So please make sure that {@code forceWholeCommitIntervalInMillis}
-     * is within log retention time set on Kafka broker.
+     * subscribed partitions who have had records but no new records for a long time too. Otherwise, after commit offset
+     * retention timeout, Kafka broker may forget where the current commit offset of these partition for the consumer
+     * are. Then, when the consumer crashed and recovered, if the consumer set <code>auto.offset.reset</code>
+     * configuration to <code>earliest</code>, it may consume a already consumed record again. So please make sure
+     * that {@code recommitIntervalInMillis} is within the limit set by <code>offsets.retention.minutes</code>
+     * on Kafka broker or even within 1/3 of that limit to tolerate some commit failures on async commit consumer.
      * <p>
-     * The default {@code forceWholeCommitInterval} is 1 hour.
+     * The default {@code recommitInterval} is 1 hour.
      *
-     * @param forceWholeCommitIntervalInMillis the interval in millis seconds to do a whole commit
+     * @param recommitIntervalInMillis the interval in millis seconds to do a recommit
      * @return this
      */
-    public LcKafkaConsumerBuilder<K, V> forceWholeCommitIntervalInMillis(long forceWholeCommitIntervalInMillis) {
-        requireArgument(forceWholeCommitIntervalInMillis > 0,
-                "forceWholeCommitIntervalInMillis: %s (expected > 0)", forceWholeCommitIntervalInMillis);
+    public LcKafkaConsumerBuilder<K, V> recommitIntervalInMillis(long recommitIntervalInMillis) {
+        requireArgument(recommitIntervalInMillis > 0,
+                "recommitIntervalInMillis: %s (expected > 0)", recommitIntervalInMillis);
 
-        this.forceWholeCommitInterval = Duration.ofMillis(forceWholeCommitIntervalInMillis);
+        this.recommitInterval = Duration.ofMillis(recommitIntervalInMillis);
         return this;
     }
 
     /**
-     * The interval to commit all partitions and it's completed offsets to broker on a partial commit consumer.
+     * The interval to commit all partitions and it's completed offsets to broker on a non-automatic commit consumer.
      * <p>
-     * This configuration is only valid on partial commit consumer build with
+     * This configuration is only valid and is required on a non-automatic commit consumer build with
+     * {@link LcKafkaConsumerBuilder#buildSync()}, {@link LcKafkaConsumerBuilder#buildAsync()},
      * {@link LcKafkaConsumerBuilder#buildPartialSync()} or {@link LcKafkaConsumerBuilder#buildPartialAsync()}.
      * For these kind of consumers, usually they only commit offsets of a partition when there was records consumed from
      * that partition and all these consumed records was handled successfully. But we must periodically commit those
-     * subscribed partitions who have not have any records too. Otherwise, after commit offset log retention timeout,
-     * Kafka broker may forget where the current commit offset of these partition for the consumer are. Then, when the
-     * consumer crashed and recovered, if the consumer set "auto.offset.reset" configuration to "earliest", it may
-     * consume a already consumed record again. So please make sure that {@code forceWholeCommitInterval}
-     * is within log retention time set on Kafka broker.
+     * subscribed partitions who have had records but no new records for a long time too. Otherwise, after commit offset
+     * retention timeout, Kafka broker may forget where the current commit offset of these partition for the consumer
+     * are. Then, when the consumer crashed and recovered, if the consumer set <code>auto.offset.reset</code>
+     * configuration to <code>earliest</code>, it may consume a already consumed record again. So please make sure
+     * that {@code recommitInterval} is within the limit set by <code>offsets.retention.minutes</code> on
+     * Kafka broker or even within 1/3 of that limit to tolerate some commit failures on async commit consumer..
      * <p>
-     * The default {@code forceWholeCommitInterval} is 1 hour.
+     * The default {@code recommitInterval} is 1 hour.
      *
-     * @param forceWholeCommitInterval the interval to do a whole commit
+     * @param recommitInterval the interval to do a recommit
      * @return this
      */
-    public LcKafkaConsumerBuilder<K, V> forceWholeCommitInterval(Duration forceWholeCommitInterval) {
-        requireNonNull(forceWholeCommitInterval, "forceWholeCommitInterval");
-        this.forceWholeCommitInterval = forceWholeCommitInterval;
+    public LcKafkaConsumerBuilder<K, V> recommitInterval(Duration recommitInterval) {
+        requireNonNull(recommitInterval, "recommitInterval");
+        this.recommitInterval = recommitInterval;
         return this;
     }
 
@@ -342,7 +346,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildSync() {
         consumer = buildConsumer(false);
-        policy = new SyncCommitPolicy<>(consumer);
+        policy = new SyncCommitPolicy<>(consumer, getRecommitInterval());
         return doBuild();
     }
 
@@ -367,15 +371,8 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * @return this
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildPartialSync() {
-        if (forceWholeCommitInterval == null) {
-            logger.warn("Force whole commit interval is not set for a partial commit consumer, the default " +
-                    "interval of 1 hour will be used.");
-            forceWholeCommitInterval = Duration.ofHours(1);
-        }
-        assert forceWholeCommitInterval != null;
-
         consumer = buildConsumer(false);
-        policy = new PartialSyncCommitPolicy<>(consumer, forceWholeCommitInterval);
+        policy = new PartialSyncCommitPolicy<>(consumer, getRecommitInterval());
         return doBuild();
     }
 
@@ -406,7 +403,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildAsync() {
         consumer = buildConsumer(false);
-        policy = new AsyncCommitPolicy<>(consumer, maxPendingAsyncCommits);
+        policy = new AsyncCommitPolicy<>(consumer, getRecommitInterval(), maxPendingAsyncCommits);
         return doBuild();
     }
 
@@ -435,15 +432,8 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * @return this
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildPartialAsync() {
-        if (forceWholeCommitInterval == null) {
-            logger.warn("Force whole commit interval is not set for a partial commit consumer, the default " +
-                    "interval of 30 seconds will be used.");
-            forceWholeCommitInterval = Duration.ofSeconds(30);
-        }
-        assert forceWholeCommitInterval != null;
-
         consumer = buildConsumer(false);
-        policy = new PartialAsyncCommitPolicy<>(consumer, forceWholeCommitInterval, maxPendingAsyncCommits);
+        policy = new PartialAsyncCommitPolicy<>(consumer, getRecommitInterval(), maxPendingAsyncCommits);
         return doBuild();
     }
 
@@ -492,6 +482,16 @@ public final class LcKafkaConsumerBuilder<K, V> {
             return consumer;
         }
         return new KafkaConsumer<>(configs, keyDeserializer, valueDeserializer);
+    }
+
+    Duration getRecommitInterval() {
+        if (recommitInterval == null) {
+            logger.warn("Recommit interval is not set for a non-automatic commit consumer, the default " +
+                    "interval of 1 hour will be used.");
+            recommitInterval = Duration.ofHours(1);
+        }
+
+        return recommitInterval;
     }
 
     private void checkConfigs(KafkaConfigsChecker[] checkers) {

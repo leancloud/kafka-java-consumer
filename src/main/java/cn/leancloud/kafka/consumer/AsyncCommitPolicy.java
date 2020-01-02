@@ -1,47 +1,42 @@
 package cn.leancloud.kafka.consumer;
 
 import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.clients.consumer.OffsetCommitCallback;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
-final class AsyncCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
+final class AsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K, V> {
     private static final Logger logger = LoggerFactory.getLogger(AsyncCommitPolicy.class);
 
     private final int maxPendingAsyncCommits;
+    private final OffsetCommitCallback callback;
     private int pendingAsyncCommitCounter;
     private boolean forceSync;
 
-    AsyncCommitPolicy(Consumer<K, V> consumer, int maxPendingAsyncCommits) {
-        super(consumer);
+    AsyncCommitPolicy(Consumer<K, V> consumer, Duration recommitInterval, int maxPendingAsyncCommits) {
+        super(consumer, recommitInterval);
         this.maxPendingAsyncCommits = maxPendingAsyncCommits;
+        this.callback = new AsyncCommitCallback();
     }
 
     @Override
     public Set<TopicPartition> tryCommit(boolean noPendingRecords) {
         if (!noPendingRecords || completedTopicOffsets.isEmpty()) {
+            if (needRecommit()) {
+                commit(offsetsForRecommit());
+            }
             return Collections.emptySet();
         }
 
-        if (forceSync || pendingAsyncCommitCounter >= maxPendingAsyncCommits) {
-            consumer.commitSync();
-            pendingAsyncCommitCounter = 0;
-            forceSync = false;
-        } else {
-            ++pendingAsyncCommitCounter;
-            consumer.commitAsync((offsets, exception) -> {
-                --pendingAsyncCommitCounter;
-                assert pendingAsyncCommitCounter >= 0 : "actual: " + pendingAsyncCommitCounter;
-                if (exception != null) {
-                    logger.warn("Failed to commit offsets: " + offsets + " asynchronously", exception);
-                    forceSync = true;
-                }
-            });
-        }
+        commit();
 
         final Set<TopicPartition> partitions = new HashSet<>(completedTopicOffsets.keySet());
         // it's OK to clear these collections here and we will not left any complete offset without commit even
@@ -49,5 +44,62 @@ final class AsyncCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
         completedTopicOffsets.clear();
         topicOffsetHighWaterMark.clear();
         return partitions;
+    }
+
+    int pendingAsyncCommitCount() {
+        return pendingAsyncCommitCounter;
+    }
+
+    boolean forceSync() {
+        return forceSync;
+    }
+
+    void setForceSync(boolean forceSync) {
+        this.forceSync = forceSync;
+    }
+
+    private void commit() {
+        commit(Collections.emptyMap());
+    }
+
+    private void commit(Map<TopicPartition, OffsetAndMetadata> offsets) {
+        if (forceSync || pendingAsyncCommitCounter >= maxPendingAsyncCommits) {
+            syncCommit(offsets);
+            pendingAsyncCommitCounter = 0;
+            forceSync = false;
+        } else {
+            asyncCommit(offsets);
+        }
+        // update next recommit time even if async commit failed, we tolerate this situation
+        updateNextRecommitTime();
+    }
+
+    private void asyncCommit(Map<TopicPartition, OffsetAndMetadata> offsets) {
+        ++pendingAsyncCommitCounter;
+        if (offsets.isEmpty()) {
+            consumer.commitAsync(callback);
+        } else {
+            consumer.commitAsync(offsets, callback);
+        }
+    }
+
+    private void syncCommit(Map<TopicPartition, OffsetAndMetadata> offsets) {
+        if (offsets.isEmpty()) {
+            consumer.commitSync();
+        } else {
+            consumer.commitSync(offsets);
+        }
+    }
+
+    private class AsyncCommitCallback implements OffsetCommitCallback {
+        @Override
+        public void onComplete(Map<TopicPartition, OffsetAndMetadata> offsets, Exception exception) {
+            --pendingAsyncCommitCounter;
+            assert pendingAsyncCommitCounter >= 0 : "actual: " + pendingAsyncCommitCounter;
+            if (exception != null) {
+                logger.warn("Failed to commit offsets: " + offsets + " asynchronously", exception);
+                forceSync = true;
+            }
+        }
     }
 }
