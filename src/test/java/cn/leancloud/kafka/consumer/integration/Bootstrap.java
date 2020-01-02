@@ -76,8 +76,10 @@ public class Bootstrap {
             if (!consumer.assignment().isEmpty() && records.isEmpty()) {
                 for (Map.Entry<TopicPartition, Long> offsetsEntry : consumer.endOffsets(consumer.assignment()).entrySet()) {
                     final OffsetAndMetadata committedOffset = consumer.committed(offsetsEntry.getKey());
-                    if (committedOffset.offset() != offsetsEntry.getValue()) {
-                        continue outer;
+                    if (committedOffset != null) {
+                        if (committedOffset.offset() != offsetsEntry.getValue()) {
+                            continue outer;
+                        }
                     }
                 }
 
@@ -226,7 +228,7 @@ public class Bootstrap {
                     new IntegerDeserializer(),
                     new StringDeserializer())
                     .workerPool(workerPool, false)
-                    .forceWholeCommitInterval(Duration.ofSeconds(1))
+                    .recommitInterval(Duration.ofSeconds(1))
                     .buildPartialSync();
         }
     }
@@ -249,7 +251,7 @@ public class Bootstrap {
                     handler,
                     new IntegerDeserializer(),
                     new StringDeserializer())
-                    .forceWholeCommitInterval(Duration.ofSeconds(1))
+                    .recommitInterval(Duration.ofSeconds(1))
                     .buildPartialSync();
         }
     }
@@ -318,7 +320,7 @@ public class Bootstrap {
                     new IntegerDeserializer(),
                     new StringDeserializer())
                     .workerPool(workerPool, false)
-                    .forceWholeCommitInterval(Duration.ofSeconds(1))
+                    .recommitInterval(Duration.ofSeconds(1))
                     .buildAsync();
         }
     }
@@ -341,7 +343,7 @@ public class Bootstrap {
                     handler,
                     new IntegerDeserializer(),
                     new StringDeserializer())
-                    .forceWholeCommitInterval(Duration.ofSeconds(1))
+                    .recommitInterval(Duration.ofSeconds(1))
                     .buildAsync();
         }
     }

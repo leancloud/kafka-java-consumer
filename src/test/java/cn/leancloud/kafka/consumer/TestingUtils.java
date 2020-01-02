@@ -2,15 +2,15 @@ package cn.leancloud.kafka.consumer;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.MockConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.LongStream;
 
+import static java.util.Comparator.comparing;
+import static java.util.function.BinaryOperator.maxBy;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
@@ -60,5 +60,39 @@ class TestingUtils {
         for (ConsumerRecord<K, V> record : records) {
             consumer.addRecord(record);
         }
+    }
+
+    static List<ConsumerRecord<Object, Object>> generateConsumedRecords(MockConsumer<Object, Object> consumer, List<TopicPartition> partitions) {
+        return generateConsumedRecords(consumer, partitions, 1);
+    }
+
+    static List<ConsumerRecord<Object, Object>> generateConsumedRecords(MockConsumer<Object, Object> consumer, List<TopicPartition> partitions, int size) {
+        // one msg for each partitions
+        final List<ConsumerRecord<Object, Object>> pendingRecords = prepareConsumerRecords(partitions, 1, size);
+        fireConsumerRecords(consumer, pendingRecords);
+        consumer.poll(0);
+        return pendingRecords;
+    }
+
+    static Map<TopicPartition, OffsetAndMetadata> buildCommitOffsets(List<ConsumerRecord<Object, Object>> records) {
+        final Map<TopicPartition, OffsetAndMetadata> completeOffsets = new HashMap<>();
+        for (ConsumerRecord<Object, Object> record : records) {
+            completeOffsets.merge(new TopicPartition(testingTopic, record.partition()),
+                    new OffsetAndMetadata(record.offset() + 1),
+                    maxBy(comparing(OffsetAndMetadata::offset)));
+        }
+        return completeOffsets;
+    }
+
+    static void addCompleteRecordInPolicy(CommitPolicy<Object, Object> policy, ConsumerRecord<Object, Object> record) {
+        policy.addPendingRecord(record);
+        policy.completeRecord(record);
+    }
+
+    static List<ConsumerRecord<Object, Object>> addCompleteRecordsInPolicy(CommitPolicy<Object, Object> policy, List<ConsumerRecord<Object, Object>> records) {
+        for (ConsumerRecord<Object, Object> record : records) {
+            addCompleteRecordInPolicy(policy, record);
+        }
+        return records;
     }
 }

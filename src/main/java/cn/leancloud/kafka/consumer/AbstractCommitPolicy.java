@@ -14,7 +14,7 @@ import static java.util.Comparator.comparing;
 import static java.util.function.BinaryOperator.maxBy;
 import static java.util.stream.Collectors.toSet;
 
-abstract class AbstractCommitPolicy<K,V> implements CommitPolicy<K,V> {
+abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
     protected final Consumer<K, V> consumer;
     final Map<TopicPartition, Long> topicOffsetHighWaterMark;
     final Map<TopicPartition, OffsetAndMetadata> completedTopicOffsets;
