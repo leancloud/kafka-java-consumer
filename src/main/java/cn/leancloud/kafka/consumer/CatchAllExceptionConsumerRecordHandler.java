@@ -14,6 +14,7 @@ import java.util.function.BiConsumer;
  * on handling a record and carry on to handle next record. But it actually can compromise
  * the consumer to prevent a livelock, where the application did not crash but fails to
  * make progress for some reason.
+ * <p>
  * Please use it judiciously. Usually fail fast, let the polling thread exit on exception, is your best choice.
  *
  * @param <K> the type of key for records consumed from Kafka
