@@ -7,8 +7,13 @@ import org.apache.kafka.common.MetricName;
 import java.io.Closeable;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+
+import static java.lang.Integer.min;
+import static java.util.Objects.requireNonNull;
 
 /**
  * {@code LcKafkaConsumer} is a wrapper over {@link Consumer}. It will use {@link Consumer} to consume
@@ -63,21 +68,49 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
      *
      * @param topics the topics to consume.
      * @throws IllegalStateException    if this {@code LcKafkaConsumer} has closed or subscribed to some topics
-     * @throws IllegalArgumentException if the input {@code topics} is empty
+     * @throws NullPointerException     if the input {@code topics} is null
+     * @throws IllegalArgumentException if the input {@code topics} is empty or contains null or empty topic
      */
     public synchronized void subscribe(Collection<String> topics) {
+        requireNonNull(topics, "topics");
+
         if (topics.isEmpty()) {
             throw new IllegalArgumentException("subscribe empty topics");
         }
 
-        if (subscribed() || closed()) {
-            throw new IllegalStateException("client is in " + state + " state. expect: " + State.INIT);
+        for (String topic : topics) {
+            if (topic == null || topic.trim().isEmpty())
+                throw new IllegalArgumentException("topic collection to subscribe to cannot contain null or empty topic");
         }
+
+        ensureInInit();
 
         consumer.subscribe(topics, new RebalanceListener<>(consumer, policy));
 
-        final String firstTopic = topics.iterator().next();
-        fetcherThread.setName("kafka-fetcher-for-" + firstTopic + (topics.size() > 1 ? "..." : ""));
+        fetcherThread.setName(fetcherThreadName(topics));
+        fetcherThread.start();
+
+        state = State.SUBSCRIBED;
+    }
+
+    /**
+     * Subscribe to all topics matching specified pattern to get dynamically assigned partitions.
+     * The pattern matching will be done periodically against all topics existing at the time of check.
+     * This can be controlled through the {@code metadata.max.age.ms} configuration: by lowering
+     * the max metadata age, the consumer will refresh metadata more often and check for matching topics.
+     *
+     * @param pattern {@link Pattern} to subscribe to.
+     * @throws IllegalStateException    if this {@code LcKafkaConsumer} has closed or subscribed to some topics
+     * @throws NullPointerException     if the input {@code pattern} is null
+     */
+    public synchronized void subscribe(Pattern pattern) {
+        requireNonNull(pattern, "pattern");
+
+        ensureInInit();
+
+        consumer.subscribe(pattern, new RebalanceListener<>(consumer, policy));
+
+        fetcherThread.setName(fetcherThreadName(pattern));
         fetcherThread.start();
 
         state = State.SUBSCRIBED;
@@ -129,5 +162,25 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
 
     CommitPolicy<K, V> policy() {
         return policy;
+    }
+
+    private void ensureInInit() {
+        if (subscribed() || closed()) {
+            throw new IllegalStateException("client is in " + state + " state. expect: " + State.INIT);
+        }
+    }
+
+    private String fetcherThreadName(Collection<String> topics) {
+        final String firstTopic = topics.iterator().next();
+        String postfix = firstTopic.substring(0, min(10, firstTopic.length()));
+        postfix += topics.size() > 1 || firstTopic.length() > 10 ? "..." : "";
+        return "kafka-fetcher-for-" + postfix;
+    }
+
+    private String fetcherThreadName(Pattern pattern) {
+        final String patternInString = pattern.toString();
+        String postfix = patternInString.substring(0, min(10, patternInString.length()));
+        postfix += patternInString.length() > 10 ? "..." : "";
+        return "kafka-fetcher-for-" + postfix;
     }
 }

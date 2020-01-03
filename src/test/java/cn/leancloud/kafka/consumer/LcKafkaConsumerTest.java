@@ -2,16 +2,23 @@ package cn.leancloud.kafka.consumer;
 
 import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
+import org.apache.kafka.common.PartitionInfo;
+import org.apache.kafka.common.TopicPartition;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
+import static cn.leancloud.kafka.consumer.TestingUtils.assignPartitions;
+import static cn.leancloud.kafka.consumer.TestingUtils.testingTopic;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -42,6 +49,17 @@ public class LcKafkaConsumerTest {
     }
 
     @Test
+    public void testSubscribeNullTopics() {
+        consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
+                .buildSync();
+        Collection<String> topics = null;
+        assertThatThrownBy(() -> consumer.subscribe(topics))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("topics");
+    }
+
+    @Test
     public void testSubscribeWithEmptyTopics() {
         consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
@@ -52,12 +70,60 @@ public class LcKafkaConsumerTest {
     }
 
     @Test
-    public void testSubscribe() {
+    public void testSubscribeContainsEmptyTopics() {
+        consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
+                .buildSync();
+        assertThatThrownBy(() -> consumer.subscribe(Arrays.asList("Topic", "")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("topic collection to subscribe to cannot contain null or empty topic");
+    }
+
+    @Test
+    public void testSubscribeContainsNullPattern() {
+        consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
+                .buildSync();
+        Pattern pattern = null;
+        assertThatThrownBy(() -> consumer.subscribe(pattern))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("pattern");
+    }
+
+    @Test
+    public void testSubscribeNull() {
+        consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
+                .buildSync();
+        assertThatThrownBy(() -> consumer.subscribe(Arrays.asList("Topic", null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("topic collection to subscribe to cannot contain null or empty topic");
+    }
+
+    @Test
+    public void testSubscribeTopics() {
         final MockConsumer<Object, Object> kafkaConsumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
         consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
                 .mockKafkaConsumer(kafkaConsumer)
                 .buildSync();
         consumer.subscribe(testingTopics);
+
+        assertThat(kafkaConsumer.subscription()).containsExactlyElementsOf(testingTopics);
+        assertThat(consumer.subscribed()).isTrue();
+    }
+
+    @Test
+    public void testSubscribePattern() {
+        final MockConsumer<Object, Object> kafkaConsumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
+        consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .mockKafkaConsumer(kafkaConsumer)
+                .buildSync();
+
+        final List<Integer> partitions = IntStream.range(0, 30).boxed().collect(toList());
+        kafkaConsumer.updateEndOffsets(generateEndOffsets(partitions, 0));
+        kafkaConsumer.updatePartitions(testingTopic, generatePartitionInfos(partitions));
+        final Pattern pattern = Pattern.compile("Test.*");
+        consumer.subscribe(pattern);
 
         assertThat(kafkaConsumer.subscription()).containsExactlyElementsOf(testingTopics);
         assertThat(consumer.subscribed()).isTrue();
@@ -108,4 +174,19 @@ public class LcKafkaConsumerTest {
         assertThat(consumer.closed()).isTrue();
     }
 
+    private List<PartitionInfo> generatePartitionInfos(List<Integer> partitions) {
+        return partitions
+                .stream()
+                .map(p -> new PartitionInfo(testingTopic, p, null, null, null))
+                .collect(toList());
+    }
+
+    private Map<TopicPartition, Long> generateEndOffsets(List<Integer> partitions, long endOffset) {
+        return partitions
+                .stream()
+                .map(p -> new TopicPartition(testingTopic, p))
+                .collect(toMap(Function.identity(), (p) -> endOffset));
+
+
+    }
 }
