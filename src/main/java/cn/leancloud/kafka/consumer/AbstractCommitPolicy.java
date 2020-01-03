@@ -75,10 +75,12 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
         }
     }
 
+    @VisibleForTesting
     Map<TopicPartition, Long> topicOffsetHighWaterMark() {
         return topicOffsetHighWaterMark;
     }
 
+    @VisibleForTesting
     Map<TopicPartition, OffsetAndMetadata> completedTopicOffsets() {
         return completedTopicOffsets;
     }

@@ -2,25 +2,27 @@ package cn.leancloud.kafka.consumer;
 
 import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import static cn.leancloud.kafka.consumer.TestingUtils.assignPartitions;
 import static cn.leancloud.kafka.consumer.TestingUtils.testingTopic;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
@@ -51,6 +53,7 @@ public class LcKafkaConsumerTest {
     @Test
     public void testSubscribeNullTopics() {
         consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .recommitInterval(Duration.ofDays(1))
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .buildSync();
         Collection<String> topics = null;
@@ -62,6 +65,7 @@ public class LcKafkaConsumerTest {
     @Test
     public void testSubscribeWithEmptyTopics() {
         consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .recommitInterval(Duration.ofDays(1))
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .buildSync();
         assertThatThrownBy(() -> consumer.subscribe(Collections.emptyList()))
@@ -72,6 +76,7 @@ public class LcKafkaConsumerTest {
     @Test
     public void testSubscribeContainsEmptyTopics() {
         consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .recommitInterval(Duration.ofDays(1))
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .buildSync();
         assertThatThrownBy(() -> consumer.subscribe(Arrays.asList("Topic", "")))
@@ -82,6 +87,7 @@ public class LcKafkaConsumerTest {
     @Test
     public void testSubscribeContainsNullPattern() {
         consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .recommitInterval(Duration.ofDays(1))
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .buildSync();
         Pattern pattern = null;
@@ -93,6 +99,7 @@ public class LcKafkaConsumerTest {
     @Test
     public void testSubscribeNull() {
         consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .recommitInterval(Duration.ofDays(1))
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .buildSync();
         assertThatThrownBy(() -> consumer.subscribe(Arrays.asList("Topic", null)))
@@ -104,6 +111,7 @@ public class LcKafkaConsumerTest {
     public void testSubscribeTopics() {
         final MockConsumer<Object, Object> kafkaConsumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
         consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .recommitInterval(Duration.ofDays(1))
                 .mockKafkaConsumer(kafkaConsumer)
                 .buildSync();
         consumer.subscribe(testingTopics);
@@ -116,6 +124,7 @@ public class LcKafkaConsumerTest {
     public void testSubscribePattern() {
         final MockConsumer<Object, Object> kafkaConsumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
         consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .recommitInterval(Duration.ofDays(1))
                 .mockKafkaConsumer(kafkaConsumer)
                 .buildSync();
 
@@ -132,12 +141,13 @@ public class LcKafkaConsumerTest {
     @Test
     public void testSubscribedTwice() {
         consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
+                .recommitInterval(Duration.ofDays(1))
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .buildSync();
         consumer.subscribe(testingTopics);
         assertThatThrownBy(() -> consumer.subscribe(testingTopics))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("client is in SUBSCRIBED state. expect: INIT");
+                .hasMessage("consumer is closed or have subscribed to some topics or pattern");
     }
 
     @Test
@@ -145,8 +155,9 @@ public class LcKafkaConsumerTest {
         consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
                 .workerPool(workerPool, true)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
+                .recommitInterval(Duration.ofDays(1))
                 .buildSync();
-        consumer.subscribe(testingTopics);
+        final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = consumer.subscribe(testingTopics);
 
         // subscribe topic to change state
         assertThat(consumer.subscribed()).isTrue();
@@ -155,6 +166,7 @@ public class LcKafkaConsumerTest {
         verify(workerPool, times(1)).shutdown();
         verify(workerPool, times(1)).awaitTermination(anyLong(), any());
         assertThat(consumer.closed()).isTrue();
+        assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.CLOSED);
     }
 
     @Test
@@ -162,8 +174,9 @@ public class LcKafkaConsumerTest {
         consumer = LcKafkaConsumerBuilder.newBuilder(configs, consumerRecordHandler)
                 .workerPool(workerPool, false)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
+                .recommitInterval(Duration.ofDays(1))
                 .buildSync();
-        consumer.subscribe(testingTopics);
+        final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = consumer.subscribe(testingTopics);
 
         // subscribe topic to change state
         assertThat(consumer.subscribed()).isTrue();
@@ -172,6 +185,31 @@ public class LcKafkaConsumerTest {
         verify(workerPool, never()).shutdown();
         verify(workerPool, never()).awaitTermination(anyLong(), any());
         assertThat(consumer.closed()).isTrue();
+        assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.CLOSED);
+    }
+
+    @Test
+    public void testShutdownOnUnsubscribe() throws Exception {
+        final MockConsumer<Object, Object> mockedConsumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
+        // setup an exception
+        mockedConsumer.setException(new KafkaException("Testing shutdown fetcher exception"));
+        consumer = LcKafkaConsumerBuilder
+                .newBuilder(configs, consumerRecordHandler)
+                .workerPool(workerPool, true)
+                .mockKafkaConsumer(mockedConsumer)
+                .recommitInterval(Duration.ofDays(1))
+                .buildSync();
+        final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = consumer.subscribe(testingTopics);
+
+        // subscribe topic to change state
+        assertThat(consumer.subscribed()).isTrue();
+
+        await().until(() -> consumer.closed());
+
+        verify(workerPool, times(1)).shutdown();
+        verify(workerPool, times(1)).awaitTermination(anyLong(), any());
+        assertThat(consumer.closed()).isTrue();
+        assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.ERROR);
     }
 
     private List<PartitionInfo> generatePartitionInfos(List<Integer> partitions) {

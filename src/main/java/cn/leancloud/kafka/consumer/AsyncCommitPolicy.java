@@ -46,14 +46,17 @@ final class AsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K,
         return partitions;
     }
 
+    @VisibleForTesting
     int pendingAsyncCommitCount() {
         return pendingAsyncCommitCounter;
     }
 
+    @VisibleForTesting
     boolean forceSync() {
         return forceSync;
     }
 
+    @VisibleForTesting
     void setForceSync(boolean forceSync) {
         this.forceSync = forceSync;
     }

@@ -24,6 +24,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
     private final Map<ConsumerRecord<K, V>, Future<ConsumerRecord<K, V>>> pendingFutures;
     private final CommitPolicy<K, V> policy;
     private final long gracefulShutdownMillis;
+    private final CompletableFuture<UnsubscribedStatus> unsubscribeStatusFuture;
     private volatile boolean closed;
 
     Fetcher(LcKafkaConsumerBuilder<K, V> consumerBuilder) {
@@ -44,6 +45,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         this.service = new ExecutorCompletionService<>(workerPool);
         this.policy = policy;
         this.gracefulShutdownMillis = gracefulShutdownMillis;
+        this.unsubscribeStatusFuture = new CompletableFuture<>();
     }
 
     @Override
@@ -51,6 +53,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         logger.debug("Fetcher thread started.");
         final long pollTimeout = this.pollTimeout;
         final Consumer<K, V> consumer = this.consumer;
+        UnsubscribedStatus unsubscribedStatus = UnsubscribedStatus.CLOSED;
         while (true) {
             try {
                 final ConsumerRecords<K, V> records = consumer.poll(pollTimeout);
@@ -72,13 +75,14 @@ final class Fetcher<K, V> implements Runnable, Closeable {
                     break;
                 }
             } catch (Exception ex) {
+                unsubscribedStatus = UnsubscribedStatus.ERROR;
                 close();
                 logger.error("Fetcher quit with unexpected exception. Will rebalance after poll timeout.", ex);
                 break;
             }
         }
 
-        gracefulShutdown();
+        gracefulShutdown(unsubscribedStatus);
     }
 
     @Override
@@ -87,6 +91,11 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         consumer.wakeup();
     }
 
+    CompletableFuture<UnsubscribedStatus> unsubscribeStatusFuture() {
+        return unsubscribeStatusFuture;
+    }
+
+    @VisibleForTesting
     Map<ConsumerRecord<K, V>, Future<ConsumerRecord<K, V>>> pendingFutures() {
         return pendingFutures;
     }
@@ -134,7 +143,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         }
     }
 
-    private void gracefulShutdown() {
+    private void gracefulShutdown(UnsubscribedStatus unsubscribedStatus) {
         final long start = System.currentTimeMillis();
         long remain = gracefulShutdownMillis;
         try {
@@ -162,6 +171,8 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         policy.partialCommit();
 
         pendingFutures.clear();
+
+        unsubscribeStatusFuture.complete(unsubscribedStatus);
 
         logger.debug("Fetcher thread exit.");
     }
