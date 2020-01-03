@@ -12,6 +12,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -62,6 +63,7 @@ public class FetcherTest {
     public void testGracefulShutdown() throws Exception {
         executorService = mock(ExecutorService.class);
         fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, 0);
+        final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = fetcher.unsubscribeStatusFuture();
         fetcherThread = new Thread(fetcher);
 
         doNothing().when(executorService).execute(any(Runnable.class));
@@ -76,11 +78,13 @@ public class FetcherTest {
         assertThat(fetcher.pendingFutures()).isEmpty();
         verify(policy, times(1)).partialCommit();
         assertThat(consumer.subscription()).isEmpty();
+        assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.CLOSED);
     }
 
     @Test
     public void testHandleMsgFailed() throws Exception {
         fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, 10_000);
+        final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = fetcher.unsubscribeStatusFuture();
         fetcherThread = new Thread(fetcher);
 
         assignPartitions(consumer, toPartitions(singletonList(0)), 0L);
@@ -96,6 +100,7 @@ public class FetcherTest {
         verify(policy, never()).completeRecord(any());
         verify(policy, never()).tryCommit(anyBoolean());
         verify(consumerRecordHandler, times(1)).handleRecord(defaultTestingRecord);
+        assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.ERROR);
     }
 
     @Test

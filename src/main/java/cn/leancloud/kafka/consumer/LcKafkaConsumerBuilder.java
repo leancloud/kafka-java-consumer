@@ -484,7 +484,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
         return new KafkaConsumer<>(configs, keyDeserializer, valueDeserializer);
     }
 
-    Duration getRecommitInterval() {
+    private Duration getRecommitInterval() {
         if (recommitInterval == null) {
             logger.warn("Recommit interval is not set for a non-automatic commit consumer, the default " +
                     "interval of 1 hour will be used.");

@@ -7,7 +7,7 @@ import org.apache.kafka.common.MetricName;
 import java.io.Closeable;
 import java.util.Collection;
 import java.util.Map;
-import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
@@ -67,11 +67,15 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
      * Subscribe some Kafka topics to consume records from them.
      *
      * @param topics the topics to consume.
+     * @return a {@link CompletableFuture} which will be complete when the internal
+     * {@link org.apache.kafka.clients.consumer.KafkaConsumer} unsubscribed all the topics that have subscribed to
+     * due to an error occurred or {@link LcKafkaConsumer#close()} was called. If it is due to an error occurred, this
+     * {@code LcKafkaConsumer} will be closed before the returned {@code CompletableFuture} complete.
      * @throws IllegalStateException    if this {@code LcKafkaConsumer} has closed or subscribed to some topics
      * @throws NullPointerException     if the input {@code topics} is null
      * @throws IllegalArgumentException if the input {@code topics} is empty or contains null or empty topic
      */
-    public synchronized void subscribe(Collection<String> topics) {
+    public synchronized CompletableFuture<UnsubscribedStatus> subscribe(Collection<String> topics) {
         requireNonNull(topics, "topics");
 
         if (topics.isEmpty()) {
@@ -91,6 +95,8 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
         fetcherThread.start();
 
         state = State.SUBSCRIBED;
+
+        return setupUnsubscribedFuture();
     }
 
     /**
@@ -100,10 +106,14 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
      * the max metadata age, the consumer will refresh metadata more often and check for matching topics.
      *
      * @param pattern {@link Pattern} to subscribe to.
-     * @throws IllegalStateException    if this {@code LcKafkaConsumer} has closed or subscribed to some topics
-     * @throws NullPointerException     if the input {@code pattern} is null
+     * @return a {@link CompletableFuture} which will be complete when the internal
+     * {@link org.apache.kafka.clients.consumer.KafkaConsumer} unsubscribed all the topics that have subscribed to
+     * due to an error occurred or {@link LcKafkaConsumer#close()} was called. If it is due to an error occurred, this
+     * {@code LcKafkaConsumer} will be closed before the returned {@code CompletableFuture} complete.
+     * @throws IllegalStateException if this {@code LcKafkaConsumer} has closed or subscribed to some topics
+     * @throws NullPointerException  if the input {@code pattern} is null
      */
-    public synchronized void subscribe(Pattern pattern) {
+    public synchronized CompletableFuture<UnsubscribedStatus> subscribe(Pattern pattern) {
         requireNonNull(pattern, "pattern");
 
         ensureInInit();
@@ -114,6 +124,8 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
         fetcherThread.start();
 
         state = State.SUBSCRIBED;
+
+        return setupUnsubscribedFuture();
     }
 
     /**
@@ -139,9 +151,11 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
             state = State.CLOSED;
         }
 
-        fetcher.close();
         try {
-            fetcherThread.join();
+            if (Thread.currentThread() != fetcherThread) {
+                fetcher.close();
+                fetcherThread.join();
+            }
             consumer.close();
             if (shutdownWorkerPoolOnStop) {
                 workerPool.shutdown();
@@ -152,21 +166,37 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
         }
     }
 
+    @VisibleForTesting
     boolean subscribed() {
         return state.code() > State.INIT.code();
     }
 
+    @VisibleForTesting
     boolean closed() {
         return state == State.CLOSED;
     }
 
+    @VisibleForTesting
     CommitPolicy<K, V> policy() {
         return policy;
     }
 
+    private CompletableFuture<UnsubscribedStatus> setupUnsubscribedFuture() {
+        assert !fetcher.unsubscribeStatusFuture().isDone();
+
+        // use a new CompletableFuture to ensure that close() should be called first, then do the pipeline bind to the
+        // returned CompletableFuture
+        final CompletableFuture<UnsubscribedStatus> ret = new CompletableFuture<>();
+        fetcher.unsubscribeStatusFuture().thenAccept(status -> {
+            close();
+            ret.complete(status);
+        });
+        return ret;
+    }
+
     private void ensureInInit() {
         if (subscribed() || closed()) {
-            throw new IllegalStateException("client is in " + state + " state. expect: " + State.INIT);
+            throw new IllegalStateException("consumer is closed or have subscribed to some topics or pattern");
         }
     }
 

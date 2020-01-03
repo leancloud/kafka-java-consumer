@@ -40,6 +40,7 @@ abstract class AbstractRecommitAwareCommitPolicy<K, V> extends AbstractCommitPol
         updateNextRecommitTime(System.nanoTime());
     }
 
+    @VisibleForTesting
     long nextRecommitNanos() {
         return nextRecommitNanos;
     }

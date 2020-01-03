@@ -47,10 +47,12 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractPartialCommitPolicy<K
         }
     }
 
+    @VisibleForTesting
     int pendingAsyncCommitCount() {
         return pendingAsyncCommitCounter;
     }
 
+    @VisibleForTesting
     boolean forceSync() {
         return forceSync;
     }
