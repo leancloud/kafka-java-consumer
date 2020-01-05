@@ -84,7 +84,39 @@ public class LcKafkaConsumerBuilderTest {
     }
 
     @Test
-    public void testNegativeShutdownTimeout() {
+    public void testNegativePollTimeout() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .pollTimeout(Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("pollTimeout: PT-1S (expect positive or zero duration)");
+    }
+
+    @Test
+    public void testNegativeHandleRecordTimeoutMs() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .handleRecordTimeoutMillis(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("handleRecordTimeoutMillis");
+    }
+
+    @Test
+    public void testNullHandleRecordTimeout() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .handleRecordTimeout(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("handleRecordTimeout");
+    }
+
+    @Test
+    public void testNegativeHandleRecordTimeout() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .handleRecordTimeout(Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("handleRecordTimeout: PT-1S (expect positive or zero duration)");
+    }
+
+    @Test
+    public void testNegativeShutdownTimeoutMs() {
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
                 .gracefulShutdownTimeoutMillis(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -100,7 +132,15 @@ public class LcKafkaConsumerBuilderTest {
     }
 
     @Test
-    public void testNegativeRecommitInterval() {
+    public void testNegativeShutdownTimeout() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .gracefulShutdownTimeout(Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("gracefulShutdownTimeout: PT-1S (expect positive or zero duration)");
+    }
+
+    @Test
+    public void testNegativeRecommitIntervalMs() {
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
                 .recommitIntervalInMillis(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -113,6 +153,14 @@ public class LcKafkaConsumerBuilderTest {
                 .recommitInterval(null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("recommitInterval");
+    }
+
+    @Test
+    public void testNegativeRecommitInterval() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .recommitInterval(Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("recommitInterval: PT-1S (expect positive duration)");
     }
 
     @Test
@@ -202,6 +250,7 @@ public class LcKafkaConsumerBuilderTest {
                 .pollTimeout(Duration.ofMillis(1000))
                 .maxPendingAsyncCommits(100)
                 .recommitInterval(Duration.ofMinutes(20))
+                .handleRecordTimeout(Duration.ZERO)
                 .buildSync();
 
         assertThat(consumer).isNotNull();
@@ -217,6 +266,8 @@ public class LcKafkaConsumerBuilderTest {
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .pollTimeout(Duration.ofMillis(1000))
                 .maxPendingAsyncCommits(100)
+                .gracefulShutdownTimeoutMillis(15_000)
+                .handleRecordTimeoutMillis(10_000)
                 .workerPool(workerPool, false)
                 .recommitInterval(Duration.ofMinutes(20))
                 .buildAsync();
@@ -234,8 +285,9 @@ public class LcKafkaConsumerBuilderTest {
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .pollTimeout(Duration.ofMillis(1000))
                 .maxPendingAsyncCommits(100)
+                .recommitIntervalInMillis(100_000)
+                .gracefulShutdownTimeout(Duration.ofDays(1))
                 .workerPool(workerPool, false)
-                .recommitInterval(Duration.ofHours(1))
                 .buildPartialSync();
 
         assertThat(consumer).isNotNull();

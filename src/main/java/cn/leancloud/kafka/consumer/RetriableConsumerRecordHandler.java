@@ -19,30 +19,40 @@ public final class RetriableConsumerRecordHandler<K, V> implements ConsumerRecor
     private final ConsumerRecordHandler<K, V> wrappedHandler;
 
     /**
-     * Constructor for {@code RetriableConsumerRecordHandler} with max retry times limit.
+     * Constructor for {@code RetriableConsumerRecordHandler} with max retry times limit. The returned
+     * {@code RetriableConsumerRecordHandler} is a {@link ConsumerRecordHandler} which will retry to handle a
+     * {@link ConsumerRecord} automatically if it was failed, until the {@link ConsumerRecord} was handled successfully
+     * or retried times exceeded {@code maxRetryTimes} after which a {@link HandleMessageFailedException} will be thrown.
      *
      * @param wrappedHandler the wrapped {@link ConsumerRecordHandler}.
      * @param maxRetryTimes  maximum retry times.
-     * @throws HandleMessageFailedException throw when try to handle a {@link ConsumerRecord} {@code maxRetryTimes},
-     *                                      the wrapped {@link ConsumerRecordHandler} still failed to handle this record
+     * @throws NullPointerException     when {@code wrappedHandler} is null
+     * @throws IllegalArgumentException if {@code maxRetryTimes} is a negative value
      */
     public RetriableConsumerRecordHandler(ConsumerRecordHandler<K, V> wrappedHandler, int maxRetryTimes) {
-        this(wrappedHandler, maxRetryTimes, Duration.ofMillis(0));
+        this(wrappedHandler, maxRetryTimes, Duration.ZERO);
     }
 
     /**
-     * Constructor for {@code RetriableConsumerRecordHandler} with max retry times limit and retry interval.
+     * Constructor for {@code RetriableConsumerRecordHandler} with max retry times limit and retry interval. The returned
+     * {@code RetriableConsumerRecordHandler} is a {@link ConsumerRecordHandler} which will retry to handle a
+     * {@link ConsumerRecord} automatically if it was failed, until the {@link ConsumerRecord} was handled successfully
+     * or retried times exceeded {@code maxRetryTimes} after which a {@link HandleMessageFailedException} will be thrown.
      *
      * @param wrappedHandler the wrapped {@link ConsumerRecordHandler}.
      * @param maxRetryTimes  maximum retry times.
      * @param retryInterval  the interval between every retry
-     * @throws HandleMessageFailedException throw when try to handle a {@link ConsumerRecord} {@code maxRetryTimes},
-     *                                      the wrapped {@link ConsumerRecordHandler} still failed to handle this record
+     * @throws NullPointerException     when {@code wrappedHandler} or {@code retryInterval} is null
+     * @throws IllegalArgumentException if {@code maxRetryTimes} is a negative value or retryInterval is a negative duration
      */
     public RetriableConsumerRecordHandler(ConsumerRecordHandler<K, V> wrappedHandler, int maxRetryTimes, Duration retryInterval) {
-        requireNonNull(retryInterval, "retryInterval");
+        requireNonNull(wrappedHandler, "wrappedHandler");
         if (maxRetryTimes <= 0) {
             throw new IllegalArgumentException("maxRetryTimes: " + maxRetryTimes + " (expect > 0)");
+        }
+        requireNonNull(retryInterval, "retryInterval");
+        if (retryInterval.isNegative()) {
+            throw new IllegalArgumentException("retryInterval: " + retryInterval + " (expect positive duration)");
         }
 
         this.maxRetryTimes = maxRetryTimes;

@@ -156,7 +156,8 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
                 fetcher.close();
                 fetcherThread.join();
             }
-            consumer.close();
+
+            // consumer was closed in fetcher
             if (shutdownWorkerPoolOnStop) {
                 workerPool.shutdown();
                 workerPool.awaitTermination(1, TimeUnit.DAYS);

@@ -5,10 +5,12 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.WakeupException;
+import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -17,46 +19,111 @@ import java.util.concurrent.*;
 final class Fetcher<K, V> implements Runnable, Closeable {
     private static final Logger logger = LoggerFactory.getLogger(Fetcher.class);
 
-    private final long pollTimeout;
+    @VisibleForTesting
+    static class TimeoutFuture<K, V> implements Future<ConsumerRecord<K, V>> {
+        private final Future<ConsumerRecord<K, V>> wrappedFuture;
+        private final long timeoutAtNanos;
+        private final Time time;
+
+        TimeoutFuture(Future<ConsumerRecord<K, V>> wrappedFuture) {
+            this(wrappedFuture, Long.MAX_VALUE);
+        }
+
+        TimeoutFuture(Future<ConsumerRecord<K, V>> wrappedFuture, long timeoutInNanos) {
+            this(wrappedFuture, timeoutInNanos, Time.SYSTEM);
+        }
+
+        TimeoutFuture(Future<ConsumerRecord<K, V>> wrappedFuture, long timeoutInNanos, Time time) {
+            assert timeoutInNanos >= 0;
+            this.wrappedFuture = wrappedFuture;
+            long timeoutAtNanos = time.nanoseconds() + timeoutInNanos;
+            if (timeoutAtNanos < 0) {
+                timeoutAtNanos = Long.MAX_VALUE;
+            }
+            this.timeoutAtNanos = timeoutAtNanos;
+            this.time = time;
+        }
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning) {
+            return wrappedFuture.cancel(mayInterruptIfRunning);
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return wrappedFuture.isCancelled();
+        }
+
+        @Override
+        public boolean isDone() {
+            return wrappedFuture.isDone();
+        }
+
+        @Override
+        public ConsumerRecord<K, V> get() throws InterruptedException, ExecutionException {
+            return wrappedFuture.get();
+        }
+
+        @Override
+        public ConsumerRecord<K, V> get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
+            // if it is already timeout, throw exception immediately
+            if (timeout()) {
+                throw new TimeoutException();
+            }
+
+            final long timeoutNanos = Math.max(0, Math.min(unit.toNanos(timeout), timeoutAtNanos - time.nanoseconds()));
+            return wrappedFuture.get(timeoutNanos, TimeUnit.NANOSECONDS);
+        }
+
+        boolean timeout() {
+            return time.nanoseconds() >= timeoutAtNanos;
+        }
+    }
+
+    private final long pollTimeoutMillis;
     private final Consumer<K, V> consumer;
     private final ConsumerRecordHandler<K, V> handler;
     private final ExecutorCompletionService<ConsumerRecord<K, V>> service;
     private final Map<ConsumerRecord<K, V>, Future<ConsumerRecord<K, V>>> pendingFutures;
     private final CommitPolicy<K, V> policy;
-    private final long gracefulShutdownMillis;
+    private final long gracefulShutdownTimeoutNanos;
     private final CompletableFuture<UnsubscribedStatus> unsubscribeStatusFuture;
+    private final long handleRecordTimeoutNanos;
     private volatile boolean closed;
 
     Fetcher(LcKafkaConsumerBuilder<K, V> consumerBuilder) {
         this(consumerBuilder.getConsumer(), consumerBuilder.getPollTimeout(), consumerBuilder.getConsumerRecordHandler(),
-                consumerBuilder.getWorkerPool(), consumerBuilder.getPolicy(), consumerBuilder.gracefulShutdownMillis());
+                consumerBuilder.getWorkerPool(), consumerBuilder.getPolicy(), consumerBuilder.gracefulShutdownTimeout(),
+                consumerBuilder.handleRecordTimeout());
     }
 
     Fetcher(Consumer<K, V> consumer,
-            long pollTimeout,
+            Duration pollTimeout,
             ConsumerRecordHandler<K, V> handler,
             ExecutorService workerPool,
             CommitPolicy<K, V> policy,
-            long gracefulShutdownMillis) {
+            Duration gracefulShutdownTimeout,
+            Duration handleRecordTimeout) {
         this.pendingFutures = new HashMap<>();
         this.consumer = consumer;
-        this.pollTimeout = pollTimeout;
+        this.pollTimeoutMillis = pollTimeout.toMillis();
         this.handler = handler;
         this.service = new ExecutorCompletionService<>(workerPool);
         this.policy = policy;
-        this.gracefulShutdownMillis = gracefulShutdownMillis;
+        this.gracefulShutdownTimeoutNanos = gracefulShutdownTimeout.toNanos();
         this.unsubscribeStatusFuture = new CompletableFuture<>();
+        this.handleRecordTimeoutNanos = handleRecordTimeout.toNanos();
     }
 
     @Override
     public void run() {
         logger.debug("Fetcher thread started.");
-        final long pollTimeout = this.pollTimeout;
+        final long pollTimeoutMillis = this.pollTimeoutMillis;
         final Consumer<K, V> consumer = this.consumer;
         UnsubscribedStatus unsubscribedStatus = UnsubscribedStatus.CLOSED;
         while (true) {
             try {
-                final ConsumerRecords<K, V> records = consumer.poll(pollTimeout);
+                final ConsumerRecords<K, V> records = consumer.poll(pollTimeoutMillis);
 
                 if (logger.isDebugEnabled()) {
                     logger.debug("Fetched " + records.count() + " records from: " + records.partitions());
@@ -64,6 +131,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
 
                 dispatchFetchedRecords(records);
                 processCompletedRecords();
+                processTimeoutRecords();
 
                 if (!pendingFutures.isEmpty() && !records.isEmpty()) {
                     consumer.pause(records.partitions());
@@ -74,7 +142,15 @@ final class Fetcher<K, V> implements Runnable, Closeable {
                 if (closed()) {
                     break;
                 }
+            } catch (ExecutionException ex) {
+                unsubscribedStatus = UnsubscribedStatus.ERROR;
+                close();
+                break;
             } catch (Exception ex) {
+                if (ex instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+
                 unsubscribedStatus = UnsubscribedStatus.ERROR;
                 close();
                 logger.error("Fetcher quit with unexpected exception. Will rebalance after poll timeout.", ex);
@@ -83,6 +159,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         }
 
         gracefulShutdown(unsubscribedStatus);
+        logger.debug("Fetcher thread exit.");
     }
 
     @Override
@@ -111,19 +188,49 @@ final class Fetcher<K, V> implements Runnable, Closeable {
                 handler.handleRecord(record);
                 return record;
             });
-            pendingFutures.put(record, future);
+            pendingFutures.put(record, timeoutAwareFuture(future));
             policy.addPendingRecord(record);
+        }
+    }
+
+    private TimeoutFuture<K, V> timeoutAwareFuture(Future<ConsumerRecord<K, V>> future) {
+        if (unlimitedHandleRecordTime()) {
+            return new TimeoutFuture<>(future);
+        } else {
+            return new TimeoutFuture<>(future, handleRecordTimeoutNanos);
         }
     }
 
     private void processCompletedRecords() throws InterruptedException, ExecutionException {
         Future<ConsumerRecord<K, V>> f;
         while ((f = service.poll()) != null) {
-            assert f.isDone();
-            final ConsumerRecord<K, V> r = f.get();
-            final Future<ConsumerRecord<K, V>> v = pendingFutures.remove(r);
-            assert v != null;
-            policy.completeRecord(r);
+            processCompletedRecord(f);
+        }
+    }
+
+    private void processCompletedRecord(Future<ConsumerRecord<K, V>> future) throws InterruptedException, ExecutionException {
+        assert future.isDone();
+        final ConsumerRecord<K, V> record = future.get();
+        assert record != null;
+        assert !future.isCancelled();
+        final Future<ConsumerRecord<K, V>> v = pendingFutures.remove(record);
+        assert v != null;
+        policy.completeRecord(record);
+    }
+
+    private void processTimeoutRecords() throws TimeoutException {
+        if (unlimitedHandleRecordTime()) {
+            return;
+        }
+
+        for (Map.Entry<ConsumerRecord<K, V>, Future<ConsumerRecord<K, V>>> entry : pendingFutures.entrySet()) {
+            final TimeoutFuture<K, V> future = (TimeoutFuture<K, V>) entry.getValue();
+            if (future.timeout()) {
+                future.cancel(false);
+                // do not wait for it again on graceful shutdown
+                pendingFutures.remove(entry.getKey(), entry.getValue());
+                throw new TimeoutException("timeout on handling record: " + entry.getKey());
+            }
         }
     }
 
@@ -143,37 +250,54 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         }
     }
 
+    private boolean unlimitedHandleRecordTime() {
+        return handleRecordTimeoutNanos == 0;
+    }
+
     private void gracefulShutdown(UnsubscribedStatus unsubscribedStatus) {
-        final long start = System.currentTimeMillis();
-        long remain = gracefulShutdownMillis;
+        long shutdownTimeout = 0L;
         try {
-            consumer.unsubscribe();
-            for (Future<ConsumerRecord<K, V>> future : pendingFutures.values()) {
-                try {
-                    if (remain > 0) {
-                        future.get(remain, TimeUnit.MILLISECONDS);
-                        remain = gracefulShutdownMillis - (System.currentTimeMillis() - start);
-                    } else {
-                        future.cancel(false);
-                    }
-                } catch (TimeoutException ex) {
-                    remain = 0;
+            shutdownTimeout = waitPendingFuturesDone();
+            policy.partialCommit();
+            pendingFutures.clear();
+        } catch (Exception ex) {
+            logger.error("Graceful shutdown got unexpected exception", ex);
+        } finally {
+            try {
+                consumer.close(shutdownTimeout, TimeUnit.NANOSECONDS);
+            } finally {
+                unsubscribeStatusFuture.complete(unsubscribedStatus);
+            }
+        }
+    }
+
+    private long waitPendingFuturesDone() {
+        final long start = System.nanoTime();
+        long remain = gracefulShutdownTimeoutNanos;
+
+        for (Map.Entry<ConsumerRecord<K, V>, Future<ConsumerRecord<K, V>>> entry : pendingFutures.entrySet()) {
+            final Future<ConsumerRecord<K, V>> future = entry.getValue();
+            try {
+                assert remain >= 0;
+                final ConsumerRecord<K, V> record = future.get(remain, TimeUnit.MILLISECONDS);
+                assert record != null;
+                policy.completeRecord(record);
+            } catch (TimeoutException ex) {
+                future.cancel(false);
+            } catch (InterruptedException ex) {
+                future.cancel(false);
+                Thread.currentThread().interrupt();
+            } catch (CancellationException ex) {
+                // ignore
+            } catch (ExecutionException ex) {
+                logger.error("Fetcher quit with unexpected exception on handling consumer record: " + entry.getKey(), ex.getCause());
+            } finally {
+                if (remain >= 0) {
+                    remain = Math.max(0, gracefulShutdownTimeoutNanos - (System.nanoTime() - start));
                 }
             }
-            processCompletedRecords();
-        } catch (InterruptedException ex) {
-            logger.warn("Graceful shutdown was interrupted.");
-            Thread.currentThread().interrupt();
-        } catch (ExecutionException ex) {
-            logger.error("Handle message got unexpected exception. Continue shutdown without wait handling message done.", ex);
         }
 
-        policy.partialCommit();
-
-        pendingFutures.clear();
-
-        unsubscribeStatusFuture.complete(unsubscribedStatus);
-
-        logger.debug("Fetcher thread exit.");
+        return remain;
     }
 }

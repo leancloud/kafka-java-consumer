@@ -24,11 +24,36 @@ public class RetriableConsumerRecordHandlerTest {
     }
 
     @Test
+    public void testNullWrappedHandler() {
+        assertThatThrownBy(() -> new RetriableConsumerRecordHandler<>(null, 10))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("wrappedHandler");
+
+        assertThatThrownBy(() -> new RetriableConsumerRecordHandler<>(null, 10, Duration.ZERO))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("wrappedHandler");
+    }
+
+    @Test
     public void testInvalidRetryTimes() {
         final int retryTimes = -1 * ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE);
         assertThatThrownBy(() -> new RetriableConsumerRecordHandler<>(wrappedHandler, retryTimes))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("maxRetryTimes");
+    }
+
+    @Test
+    public void testNullRetryInterval() {
+        assertThatThrownBy(() -> new RetriableConsumerRecordHandler<>(wrappedHandler, 10, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("retryInterval");
+    }
+
+    @Test
+    public void testInvalidRetryInterval() {
+        assertThatThrownBy(() -> new RetriableConsumerRecordHandler<>(wrappedHandler, 10, Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("retryInterval: PT-1S (expect positive duration)");
     }
 
     @Test

@@ -1,6 +1,7 @@
 package cn.leancloud.kafka.consumer;
 
 import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.common.serialization.Deserializer;
@@ -34,6 +35,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      *                              valid configurations.
      * @param consumerRecordHandler a {@link ConsumerRecordHandler} to handle the consumed record from kafka
      * @return a new {@code LcKafkaConsumerBuilder}
+     * @throws NullPointerException when {@code kafkaConfigs} or {@code consumerRecordHandler} is null
      */
     public static <K, V> LcKafkaConsumerBuilder<K, V> newBuilder(Map<String, Object> kafkaConfigs,
                                                                  ConsumerRecordHandler<K, V> consumerRecordHandler) {
@@ -52,6 +54,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * @param keyDeserializer       the deserializer for key that implements {@link Deserializer}
      * @param valueDeserializer     the deserializer for value that implements {@link Deserializer}
      * @return a new {@code LcKafkaConsumerBuilder}
+     * @throws NullPointerException when any of the input argument is null
      */
     public static <K, V> LcKafkaConsumerBuilder<K, V> newBuilder(Map<String, Object> kafkaConfigs,
                                                                  ConsumerRecordHandler<K, V> consumerRecordHandler,
@@ -73,11 +76,12 @@ public final class LcKafkaConsumerBuilder<K, V> {
         }
     }
 
-    private long pollTimeout = 100;
+    private Duration pollTimeout = Duration.ofMillis(100);
     private int maxPendingAsyncCommits = 10;
-    private long gracefulShutdownMillis = 10_000;
+    private Duration gracefulShutdownTimeout = Duration.ofSeconds(10);
     private ExecutorService workerPool = ImmediateExecutorService.INSTANCE;
     private boolean shutdownWorkerPoolOnStop = false;
+    private Duration handleRecordTimeout = Duration.ZERO;
     private Map<String, Object> configs;
     private ConsumerRecordHandler<K, V> consumerRecordHandler;
     @Nullable
@@ -89,6 +93,8 @@ public final class LcKafkaConsumerBuilder<K, V> {
     @Nullable
     private CommitPolicy<K, V> policy;
     @Nullable
+    // we have default value for recommitInterval but deliberately only initialize it to the default value in the
+    // getter for recommitInterval. Because we would like to log a warning on user forget to set it
     private Duration recommitInterval;
 
     private LcKafkaConsumerBuilder(Map<String, Object> kafkaConsumerConfigs,
@@ -119,10 +125,11 @@ public final class LcKafkaConsumerBuilder<K, V> {
      *
      * @param pollTimeoutMillis the poll timeout in milliseconds
      * @return this
+     * @throws IllegalArgumentException if {@code pollTimeoutMillis} is a negative value
      */
     public LcKafkaConsumerBuilder<K, V> pollTimeoutMillis(long pollTimeoutMillis) {
         requireArgument(pollTimeoutMillis >= 0, "pollTimeoutMillis: %s (expect >= 0)", pollTimeoutMillis);
-        this.pollTimeout = pollTimeoutMillis;
+        this.pollTimeout = Duration.ofMillis(pollTimeoutMillis);
         return this;
     }
 
@@ -137,10 +144,57 @@ public final class LcKafkaConsumerBuilder<K, V> {
      *
      * @param pollTimeout the poll timeout duration
      * @return this
+     * @throws NullPointerException     if {@code pollTimeout} is null
+     * @throws IllegalArgumentException if {@code pollTimeout} is a negative duration
      */
     public LcKafkaConsumerBuilder<K, V> pollTimeout(Duration pollTimeout) {
         requireNonNull(pollTimeout, "pollTimeout");
-        this.pollTimeout = pollTimeout.toMillis();
+        requireArgument(!pollTimeout.isNegative(), "pollTimeout: %s (expect positive or zero duration)", pollTimeout);
+        this.pollTimeout = pollTimeout;
+        return this;
+    }
+
+    /**
+     * The maximum time spent in handling a single {@link org.apache.kafka.clients.consumer.ConsumerRecord} by calling
+     * {@link ConsumerRecordHandler#handleRecord(ConsumerRecord)}. If the handling time for any {@code ConsumerRecord}
+     * exceeds this limit, a {@link java.util.concurrent.TimeoutException} will be thrown which then will drag the
+     * {@link LcKafkaConsumer} to shutdown. This mechanism is to prevent the "livelock" situation where it
+     * seems the {@code LcKafkaConsumer} is OK, continuing on sending heartbeat and calling {@link Consumer#poll(long)},
+     * but no progress is being made.
+     * <p>
+     * The default {@code handleRecordTimeoutMillis} is zero which means no limit on handling a {@code ConsumerRecord}.
+     *
+     * @param handleRecordTimeoutMillis the handle record timeout in millis seconds.
+     * @return this
+     * @throws IllegalArgumentException if {@code handleRecordTimeoutMillis} is a negative value
+     */
+    public LcKafkaConsumerBuilder<K, V> handleRecordTimeoutMillis(long handleRecordTimeoutMillis) {
+        requireArgument(handleRecordTimeoutMillis >= 0,
+                "handleRecordTimeoutMillis: %s (expect >= 0)", handleRecordTimeoutMillis);
+        this.handleRecordTimeout = Duration.ofMillis(handleRecordTimeoutMillis);
+        return this;
+    }
+
+    /**
+     * The maximum time spent in handling a single {@link org.apache.kafka.clients.consumer.ConsumerRecord} by calling
+     * {@link ConsumerRecordHandler#handleRecord(ConsumerRecord)}. If the handling time for any {@code ConsumerRecord}
+     * exceeds this limit, a {@link java.util.concurrent.TimeoutException} will be thrown which then will drag the
+     * {@link LcKafkaConsumer} to shutdown. This mechanism is to prevent the "livelock" situation where it
+     * seems the {@code LcKafkaConsumer} is OK, continuing on sending heartbeat and calling {@link Consumer#poll(long)},
+     * but no progress is being made.
+     * <p>
+     * The default {@code handleRecordTimeoutMillis} is zero which means no limit on handling a {@code ConsumerRecord}.
+     *
+     * @param handleRecordTimeout the handle record timeout duration.
+     * @return this
+     * @throws NullPointerException     if {@code handleRecordTimeout} is null
+     * @throws IllegalArgumentException if {@code handleRecordTimeout} is a negative duration
+     */
+    public LcKafkaConsumerBuilder<K, V> handleRecordTimeout(Duration handleRecordTimeout) {
+        requireNonNull(handleRecordTimeout, "handleRecordTimeout");
+        requireArgument(!handleRecordTimeout.isNegative(),
+                "handleRecordTimeout: %s (expect positive or zero duration)", handleRecordTimeout);
+        this.handleRecordTimeout = handleRecordTimeout;
         return this;
     }
 
@@ -152,11 +206,12 @@ public final class LcKafkaConsumerBuilder<K, V> {
      *
      * @param gracefulShutdownTimeoutMillis the graceful shutdown timeout in milliseconds
      * @return this
+     * @throws IllegalArgumentException if {@code gracefulShutdownTimeoutMillis} is a negative value
      */
     public LcKafkaConsumerBuilder<K, V> gracefulShutdownTimeoutMillis(long gracefulShutdownTimeoutMillis) {
         requireArgument(gracefulShutdownTimeoutMillis >= 0,
                 "gracefulShutdownTimeoutMillis: %s (expected >= 0)", gracefulShutdownTimeoutMillis);
-        this.gracefulShutdownMillis = gracefulShutdownTimeoutMillis;
+        this.gracefulShutdownTimeout = Duration.ofMillis(gracefulShutdownTimeoutMillis);
         return this;
     }
 
@@ -168,10 +223,14 @@ public final class LcKafkaConsumerBuilder<K, V> {
      *
      * @param gracefulShutdownTimeout the graceful shutdown timeout duration
      * @return this
+     * @throws NullPointerException     if {@code gracefulShutdownTimeout} is null
+     * @throws IllegalArgumentException if {@code gracefulShutdownTimeout} is a negative duration
      */
     public LcKafkaConsumerBuilder<K, V> gracefulShutdownTimeout(Duration gracefulShutdownTimeout) {
         requireNonNull(gracefulShutdownTimeout, "gracefulShutdownTimeout");
-        this.gracefulShutdownMillis = gracefulShutdownTimeout.toMillis();
+        requireArgument(!gracefulShutdownTimeout.isNegative(),
+                "gracefulShutdownTimeout: %s (expect positive or zero duration)", gracefulShutdownTimeout);
+        this.gracefulShutdownTimeout = gracefulShutdownTimeout;
         return this;
     }
 
@@ -184,6 +243,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      *
      * @param maxPendingAsyncCommits do a synchronous commit when pending async commits beyond this limit
      * @return this
+     * @throws IllegalArgumentException if {@code maxPendingAsyncCommits} is a non-positive value
      */
     public LcKafkaConsumerBuilder<K, V> maxPendingAsyncCommits(int maxPendingAsyncCommits) {
         requireArgument(maxPendingAsyncCommits > 0,
@@ -211,6 +271,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      *
      * @param recommitIntervalInMillis the interval in millis seconds to do a recommit
      * @return this
+     * @throws IllegalArgumentException if {@code recommitIntervalInMillis} is a non-positive value
      */
     public LcKafkaConsumerBuilder<K, V> recommitIntervalInMillis(long recommitIntervalInMillis) {
         requireArgument(recommitIntervalInMillis > 0,
@@ -239,9 +300,13 @@ public final class LcKafkaConsumerBuilder<K, V> {
      *
      * @param recommitInterval the interval to do a recommit
      * @return this
+     * @throws NullPointerException     if {@code recommitInterval} is null
+     * @throws IllegalArgumentException if {@code recommitInterval} is a non-positive duration
      */
     public LcKafkaConsumerBuilder<K, V> recommitInterval(Duration recommitInterval) {
         requireNonNull(recommitInterval, "recommitInterval");
+        requireArgument(!recommitInterval.isNegative() && !recommitInterval.isZero(),
+                "recommitInterval: %s (expect positive duration)", recommitInterval);
         this.recommitInterval = recommitInterval;
         return this;
     }
@@ -253,6 +318,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      *
      * @param mockedConsumer the injected consumer
      * @return this
+     * @throws NullPointerException if {@code mockedConsumer} is null
      */
     LcKafkaConsumerBuilder<K, V> mockKafkaConsumer(Consumer<K, V> mockedConsumer) {
         requireNonNull(mockedConsumer, "consumer");
@@ -287,6 +353,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * @param workerPool     a thread pool to handle consumed records
      * @param shutdownOnStop true to shutdown the input worker pool when this consumer closed
      * @return this
+     * @throws NullPointerException if {@code workerPool} is null
      */
     public LcKafkaConsumerBuilder<K, V> workerPool(ExecutorService workerPool, boolean shutdownOnStop) {
         requireNonNull(workerPool, "workerPool");
@@ -315,6 +382,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * If you set {@code enable.auto.commit} to false, this consumer will set it to true by itself.
      *
      * @return this
+     * @throws IllegalArgumentException if any required kafka consumer configurations is invalid or not provided
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildAuto() {
         checkConfigs(AutoCommitConsumerConfigs.values());
@@ -343,6 +411,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * If you set {@code enable.auto.commit} to true, this consumer will set it to false by itself.
      *
      * @return this
+     * @throws IllegalArgumentException if any required kafka consumer configurations is invalid or not provided
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildSync() {
         consumer = buildConsumer(false);
@@ -369,6 +438,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * If you set {@code enable.auto.commit} to true, this consumer will set it to false by itself.
      *
      * @return this
+     * @throws IllegalArgumentException if any required kafka consumer configurations is invalid or not provided
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildPartialSync() {
         consumer = buildConsumer(false);
@@ -400,6 +470,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * If you set {@code enable.auto.commit} to true, this consumer will set it to false by itself.
      *
      * @return this
+     * @throws IllegalArgumentException if any required kafka consumer configurations is invalid or not provided
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildAsync() {
         consumer = buildConsumer(false);
@@ -430,6 +501,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
      * If you set {@code enable.auto.commit} to true, this consumer will set it to false by itself.
      *
      * @return this
+     * @throws IllegalArgumentException if any required kafka consumer configurations is invalid or not provided
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildPartialAsync() {
         consumer = buildConsumer(false);
@@ -454,12 +526,16 @@ public final class LcKafkaConsumerBuilder<K, V> {
         return shutdownWorkerPoolOnStop;
     }
 
-    long getPollTimeout() {
+    Duration getPollTimeout() {
         return pollTimeout;
     }
 
-    long gracefulShutdownMillis() {
-        return gracefulShutdownMillis;
+    Duration gracefulShutdownTimeout() {
+        return gracefulShutdownTimeout;
+    }
+
+    Duration handleRecordTimeout() {
+        return handleRecordTimeout;
     }
 
     CommitPolicy<K, V> getPolicy() {
