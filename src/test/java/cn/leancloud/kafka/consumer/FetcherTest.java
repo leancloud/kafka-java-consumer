@@ -1,27 +1,32 @@
 package cn.leancloud.kafka.consumer;
 
+import cn.leancloud.kafka.consumer.Fetcher.TimeoutFuture;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.WakeupException;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.AdditionalMatchers;
 
+import javax.annotation.Nullable;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CyclicBarrier;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 import java.util.stream.IntStream;
 
 import static cn.leancloud.kafka.consumer.TestingUtils.*;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.*;
 
@@ -35,12 +40,15 @@ public class FetcherTest {
                     0,
                     1, defaultKey,
                     defaultMsg);
-    private static final long pollTimeout = 100;
+    private static final Duration pollTimeout = Duration.ofMillis(100);
+    private static final Duration defaultGracefulShutdownTimeout = Duration.ofSeconds(10);
     private MockConsumer<Object, Object> consumer;
     private ConsumerRecordHandler<Object, Object> consumerRecordHandler;
     private CommitPolicy<Object, Object> policy;
     private ExecutorService executorService;
+    @Nullable
     private Fetcher<Object, Object> fetcher;
+    @Nullable
     private Thread fetcherThread;
 
     @Before
@@ -53,22 +61,107 @@ public class FetcherTest {
 
     @After
     public void tearDown() throws Exception {
-        fetcher.close();
-        fetcherThread.join();
-        consumer.close();
+        if (fetcher != null) {
+            fetcher.close();
+        }
+        if (fetcherThread != null) {
+            fetcherThread.join();
+        }
+        if (!consumer.closed()) {
+            consumer.close();
+        }
         executorService.shutdown();
+    }
+
+    @Test
+    public void testDelegateMethodInTimeoutFuture() throws Exception {
+        final Future<ConsumerRecord<Object, Object>> wrappedFuture = mock(Future.class);
+        when(wrappedFuture.get()).thenReturn(null);
+
+        TimeoutFuture<Object, Object> future = new TimeoutFuture<>(wrappedFuture, 100);
+
+        future.cancel(false);
+        future.cancel(true);
+        future.isCancelled();
+        future.isDone();
+        future.get();
+
+        verify(wrappedFuture, times(1)).cancel(false);
+        verify(wrappedFuture, times(1)).cancel(true);
+        verify(wrappedFuture, times(1)).isCancelled();
+        verify(wrappedFuture, times(1)).isDone();
+        verify(wrappedFuture, times(1)).get();
+    }
+
+    @Test
+    public void testTimeoutOnGetTimeoutFuture() {
+        final Future<ConsumerRecord<Object, Object>> wrappedFuture = mock(Future.class);
+        final TimeoutFuture<Object, Object> future = new TimeoutFuture<>(wrappedFuture, 0);
+        assertThatThrownBy(() -> future.get(10, TimeUnit.SECONDS))
+                .isInstanceOf(TimeoutException.class);
+    }
+
+    @Test
+    public void testTimeoutOverflowOnTimeoutFuture() {
+        final MockTime time = new MockTime();
+        final Future<ConsumerRecord<Object, Object>> wrappedFuture = mock(Future.class);
+        final TimeoutFuture<Object, Object> future = new TimeoutFuture<>(wrappedFuture, Long.MAX_VALUE - 1, time);
+        time.setCurrentTimeNanos(Long.MAX_VALUE - 1);
+        assertThat(future.timeout()).isFalse();
+        time.setCurrentTimeNanos(Long.MAX_VALUE);
+        assertThat(future.timeout()).isTrue();
+    }
+
+    @Test
+    public void testGetOnTimeoutFuture() throws Exception {
+        final Future<ConsumerRecord<Object, Object>> wrappedFuture = mock(Future.class);
+        when(wrappedFuture.get(10L, TimeUnit.SECONDS)).thenReturn(null);
+
+        final TimeoutFuture<Object, Object> future = new TimeoutFuture<>(wrappedFuture, TimeUnit.SECONDS.toNanos(20));
+        future.get(10, TimeUnit.SECONDS);
+        verify(wrappedFuture, times(1)).get(TimeUnit.SECONDS.toNanos(10), TimeUnit.NANOSECONDS);
+    }
+
+    @Test
+    public void testGetOnTimeoutFuture2() throws Exception {
+        final Future<ConsumerRecord<Object, Object>> wrappedFuture = mock(Future.class);
+        when(wrappedFuture.get(10L, TimeUnit.SECONDS)).thenReturn(null);
+        final TimeoutFuture<Object, Object> future = new TimeoutFuture<>(wrappedFuture, TimeUnit.SECONDS.toNanos(5));
+        future.get(10, TimeUnit.SECONDS);
+        verify(wrappedFuture, times(1))
+                .get(AdditionalMatchers.lt(TimeUnit.SECONDS.toNanos(5)), any());
+    }
+
+    @Test
+    public void testUnexpectedException() throws Exception {
+        executorService = mock(ExecutorService.class);
+        assignPartitions(consumer, toPartitions(singletonList(0)), 0L);
+        consumer.setException(new KafkaException("expected testing exception"));
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, defaultGracefulShutdownTimeout,
+                Duration.ofSeconds(10));
+        final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = fetcher.unsubscribeStatusFuture();
+        fetcherThread = new Thread(fetcher);
+        fetcherThread.start();
+
+        fetcherThread.join();
+        assertThat(fetcher.pendingFutures()).isEmpty();
+        verify(policy, times(1)).partialCommit();
+        assertThat(consumer.subscription()).isEmpty();
+        assertThat(consumer.closed()).isTrue();
+        assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.ERROR);
     }
 
     @Test
     public void testGracefulShutdown() throws Exception {
         executorService = mock(ExecutorService.class);
-        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, 0);
-        final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = fetcher.unsubscribeStatusFuture();
-        fetcherThread = new Thread(fetcher);
-
         doNothing().when(executorService).execute(any(Runnable.class));
         assignPartitions(consumer, toPartitions(singletonList(0)), 0L);
         consumer.addRecord(defaultTestingRecord);
+
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, Duration.ZERO, Duration.ZERO);
+        final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = fetcher.unsubscribeStatusFuture();
+        fetcherThread = new Thread(fetcher);
+
         fetcherThread.start();
 
         await().until(() -> !fetcher.pendingFutures().isEmpty());
@@ -78,18 +171,124 @@ public class FetcherTest {
         assertThat(fetcher.pendingFutures()).isEmpty();
         verify(policy, times(1)).partialCommit();
         assertThat(consumer.subscription()).isEmpty();
+        assertThat(consumer.closed()).isTrue();
+        assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.CLOSED);
+    }
+
+    @Test
+    public void testInterruptOnShutdown() throws Exception {
+        final ExecutorService executors = Executors.newCachedThreadPool(new NamedThreadFactory("Testing-Pool"));
+        final CountDownLatch latch = new CountDownLatch(1);
+        final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
+        final List<ConsumerRecord<Object, Object>> pendingRecords = prepareConsumerRecords(partitions, 1, 1);
+        assignPartitions(consumer, partitions, 0);
+        fireConsumerRecords(consumer, pendingRecords);
+        doThrow(new RuntimeException("expected exception"))
+                .doAnswer(invocation -> {
+                    latch.countDown();
+                    Thread.sleep(5000);
+                    return null;
+                })
+                .when(consumerRecordHandler).handleRecord(any());
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executors, policy, defaultGracefulShutdownTimeout, Duration.ZERO);
+        final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = fetcher.unsubscribeStatusFuture();
+        fetcherThread = new Thread(fetcher);
+
+        fetcherThread.start();
+
+        latch.await();
+
+        fetcherThread.interrupt();
+
+        fetcherThread.join();
+        assertThat(fetcher.pendingFutures()).isEmpty();
+        verify(policy, times(1)).partialCommit();
+        verify(policy, never()).completeRecord(any());
+        verify(policy, never()).tryCommit(true);
+        assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.ERROR);
+        executors.shutdownNow();
+    }
+
+    @Test
+    public void testExceptionThrownOnShutdown() throws Exception {
+        executorService = mock(ExecutorService.class);
+        when(policy.partialCommit()).thenThrow(new RuntimeException("expected testing exception"));
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, Duration.ZERO, Duration.ZERO);
+        final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = fetcher.unsubscribeStatusFuture();
+        fetcherThread = new Thread(fetcher);
+
+        fetcherThread.start();
+
+        fetcher.close();
+        fetcherThread.join();
+        verify(policy, times(1)).partialCommit();
+        assertThat(consumer.subscription()).isEmpty();
+        assertThat(consumer.closed()).isTrue();
+        assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.CLOSED);
+    }
+
+    @Test
+    public void testCloseConsumerFailed() throws Exception {
+        executorService = mock(ExecutorService.class);
+        Consumer<Object, Object> mockedConsumer = mock(MockConsumer.class);
+        when(mockedConsumer.poll(anyLong())).thenThrow(new WakeupException());
+        doThrow(new RuntimeException("expected testing exception")).when(mockedConsumer).close();
+        fetcher = new Fetcher<>(mockedConsumer, pollTimeout, consumerRecordHandler, executorService, policy,
+                Duration.ofNanos(100), Duration.ZERO);
+        final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = fetcher.unsubscribeStatusFuture();
+        fetcherThread = new Thread(fetcher);
+
+        fetcherThread.start();
+
+        fetcher.close();
+        fetcherThread.join();
+        verify(policy, times(1)).partialCommit();
+        verify(mockedConsumer, times(1)).close(100, TimeUnit.NANOSECONDS);
         assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.CLOSED);
     }
 
     @Test
     public void testHandleMsgFailed() throws Exception {
-        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, 10_000);
+        final ExecutorService executors = Executors.newCachedThreadPool(new NamedThreadFactory("Testing-Pool"));
+        final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
+        final List<ConsumerRecord<Object, Object>> pendingRecords = prepareConsumerRecords(partitions, 1, 1);
+        assignPartitions(consumer, partitions, 0);
+        fireConsumerRecords(consumer, pendingRecords);
+        consumer.addRecord(defaultTestingRecord);
+        doThrow(new RuntimeException("expected exception"))
+                .doNothing()
+                .when(consumerRecordHandler).handleRecord(any());
+
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executors, policy, defaultGracefulShutdownTimeout, Duration.ZERO);
         final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = fetcher.unsubscribeStatusFuture();
         fetcherThread = new Thread(fetcher);
 
+        fetcherThread.start();
+
+        fetcherThread.join();
+        assertThat(fetcher.pendingFutures()).isEmpty();
+        verify(policy, times(1)).partialCommit();
+        verify(policy, times(pendingRecords.size())).addPendingRecord(any());
+        verify(policy, times(pendingRecords.size() - 1)).completeRecord(any());
+        verify(policy, never()).tryCommit(true);
+        assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.ERROR);
+        assertThat(consumer.closed()).isTrue();
+        executors.shutdown();
+    }
+
+    @Test
+    public void testHandleMsgTimeout() throws Exception {
+        final ExecutorService executors = Executors.newCachedThreadPool(new NamedThreadFactory("Testing-Pool"));
         assignPartitions(consumer, toPartitions(singletonList(0)), 0L);
         consumer.addRecord(defaultTestingRecord);
-        doThrow(new RuntimeException("expected exception")).when(consumerRecordHandler).handleRecord(defaultTestingRecord);
+        doAnswer(invocation -> {
+            Thread.sleep(1000);
+            return null;
+        }).when(consumerRecordHandler).handleRecord(defaultTestingRecord);
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executors,
+                policy, defaultGracefulShutdownTimeout, Duration.ofMillis(100));
+        final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = fetcher.unsubscribeStatusFuture();
+        fetcherThread = new Thread(fetcher);
 
         fetcherThread.start();
 
@@ -98,16 +297,15 @@ public class FetcherTest {
         verify(policy, times(1)).partialCommit();
         verify(policy, times(1)).addPendingRecord(eq(defaultTestingRecord));
         verify(policy, never()).completeRecord(any());
-        verify(policy, never()).tryCommit(anyBoolean());
+        verify(policy, never()).tryCommit(true);
         verify(consumerRecordHandler, times(1)).handleRecord(defaultTestingRecord);
         assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.ERROR);
+        assertThat(consumer.closed()).isTrue();
+        executors.shutdown();
     }
 
     @Test
     public void testNoPauseWhenMsgHandledFastEnough() throws Exception {
-        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, 10_000);
-        fetcherThread = new Thread(fetcher);
-
         final CyclicBarrier barrier = new CyclicBarrier(2);
         assignPartitions(consumer, toPartitions(singletonList(0)), 0L);
         when(policy.tryCommit(false)).thenReturn(Collections.emptySet());
@@ -116,6 +314,10 @@ public class FetcherTest {
             return null;
         }).when(policy).completeRecord(defaultTestingRecord);
         consumer.addRecord(defaultTestingRecord);
+
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, defaultGracefulShutdownTimeout, Duration.ZERO);
+        fetcherThread = new Thread(fetcher);
+
         fetcherThread.start();
 
         barrier.await();
@@ -128,14 +330,12 @@ public class FetcherTest {
         verify(policy, times(1)).completeRecord(defaultTestingRecord);
         verify(policy, atLeastOnce()).tryCommit(anyBoolean());
         verify(consumerRecordHandler, times(1)).handleRecord(defaultTestingRecord);
+        assertThat(consumer.closed()).isTrue();
     }
 
     @Test
     public void testPauseResume() throws Exception {
         final ExecutorService executors = Executors.newCachedThreadPool(new NamedThreadFactory("Testing-Pool"));
-        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executors, policy, 10_000);
-        fetcherThread = new Thread(fetcher);
-
         final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         // one msg for each partitions
         final List<ConsumerRecord<Object, Object>> pendingRecords = prepareConsumerRecords(partitions, 1, 1);
@@ -161,6 +361,9 @@ public class FetcherTest {
 
         fireConsumerRecords(consumer, pendingRecords);
 
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executors, policy, defaultGracefulShutdownTimeout, Duration.ZERO);
+        fetcherThread = new Thread(fetcher);
+
         fetcherThread.start();
 
         await().until(() -> consumer.paused().size() == pendingRecords.size());
@@ -179,16 +382,13 @@ public class FetcherTest {
         verify(policy, times(pendingRecords.size())).completeRecord(any());
         verify(policy, times(1)).partialCommit();
         verify(consumerRecordHandler, times(pendingRecords.size())).handleRecord(any());
-
+        assertThat(consumer.closed()).isTrue();
         executors.shutdown();
     }
 
     @Test
     public void testPauseAndPartialResume() throws Exception {
         final ExecutorService executors = Executors.newCachedThreadPool();
-        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executors, policy, 0);
-        fetcherThread = new Thread(fetcher);
-
         final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         // one msg for each partitions
         final List<ConsumerRecord<Object, Object>> pendingRecords = prepareConsumerRecords(partitions, 1, 1);
@@ -219,6 +419,9 @@ public class FetcherTest {
 
         fireConsumerRecords(consumer, pendingRecords);
 
+        fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executors, policy, Duration.ZERO, Duration.ZERO);
+        fetcherThread = new Thread(fetcher);
+
         fetcherThread.start();
 
         await().until(() -> consumer.paused().size() == pendingRecords.size());
@@ -238,6 +441,7 @@ public class FetcherTest {
         verify(policy, times(pendingRecords.size() / 2)).completeRecord(any());
         verify(policy, times(1)).partialCommit();
         verify(consumerRecordHandler, times(pendingRecords.size())).handleRecord(any());
+        assertThat(consumer.closed()).isTrue();
 
         executors.shutdown();
     }

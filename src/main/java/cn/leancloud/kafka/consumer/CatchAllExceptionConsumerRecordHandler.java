@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.function.BiConsumer;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * A wrapper over a {@link ConsumerRecordHandler} to catch and swallow all the exceptions throw from the
  * wrapped {@code ConsumerRecordHandler} when it failed to handle a consumed record.
@@ -31,6 +33,7 @@ public final class CatchAllExceptionConsumerRecordHandler<K, V> implements Consu
      * the wrapped handler failed on calling {@link ConsumerRecordHandler#handleRecord(ConsumerRecord)}.
      *
      * @param wrappedHandler the wrapped {@link ConsumerRecordHandler}.
+     * @throws NullPointerException when {@code wrappedHandler} is null
      */
     public CatchAllExceptionConsumerRecordHandler(ConsumerRecordHandler<K, V> wrappedHandler) {
         this(wrappedHandler, (record, throwable) -> logger.error("Handle kafka consumer record: " + record + " failed.", throwable));
@@ -43,9 +46,12 @@ public final class CatchAllExceptionConsumerRecordHandler<K, V> implements Consu
      * @param wrappedHandler the wrapped {@link ConsumerRecordHandler}.
      * @param errorConsumer  a {@link BiConsumer} to consume the failed record and the exception thrown from
      *                       the {@link ConsumerRecordHandler#handleRecord(ConsumerRecord)}
+     * @throws NullPointerException when {@code wrappedHandler} or {@code errorConsumer} is null
      */
     public CatchAllExceptionConsumerRecordHandler(ConsumerRecordHandler<K, V> wrappedHandler,
                                                   BiConsumer<ConsumerRecord<K, V>, Throwable> errorConsumer) {
+        requireNonNull(wrappedHandler, "wrappedHandler");
+        requireNonNull(errorConsumer, "errorConsumer");
         this.wrappedHandler = wrappedHandler;
         this.errorConsumer = errorConsumer;
     }

@@ -6,6 +6,8 @@ import org.junit.Test;
 
 import java.util.function.BiConsumer;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 public class CatchAllExceptionConsumerRecordHandlerTest {
@@ -16,6 +18,17 @@ public class CatchAllExceptionConsumerRecordHandlerTest {
     @Before
     public void setUp() {
         wrappedHandler = mock(ConsumerRecordHandler.class);
+    }
+
+    @Test
+    public void testNullWrappedHandler() {
+        assertThatThrownBy(() -> new CatchAllExceptionConsumerRecordHandler<>(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("wrappedHandler");
+
+        assertThatThrownBy(() -> new CatchAllExceptionConsumerRecordHandler<>(null, ((record, throwable) -> {})))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("wrappedHandler");
     }
 
     @Test
