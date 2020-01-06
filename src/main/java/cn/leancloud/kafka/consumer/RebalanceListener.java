@@ -28,8 +28,6 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
 
     @Override
     public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
-        logger.info("Partitions was revoked {}", partitions);
-
         pausedPartitions = consumer.paused();
         if (!pausedPartitions.isEmpty()) {
             pausedPartitions = new HashSet<>(pausedPartitions);
@@ -39,8 +37,6 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
 
     @Override
     public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
-        logger.info("Partitions was assigned {}", partitions);
-
         if (!pausedPartitions.isEmpty()) {
             final Set<TopicPartition> partitionToPause = partitions
                     .stream()
