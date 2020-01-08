@@ -144,7 +144,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
                 }
             } catch (ExecutionException ex) {
                 unsubscribedStatus = UnsubscribedStatus.ERROR;
-                close();
+                markClosed();
                 break;
             } catch (Exception ex) {
                 if (ex instanceof InterruptedException) {
@@ -152,7 +152,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
                 }
 
                 unsubscribedStatus = UnsubscribedStatus.ERROR;
-                close();
+                markClosed();
                 logger.error("Fetcher quit with unexpected exception. Will rebalance after poll timeout.", ex);
                 break;
             }
@@ -164,7 +164,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
 
     @Override
     public void close() {
-        closed = true;
+        markClosed();
         consumer.wakeup();
     }
 
@@ -175,6 +175,10 @@ final class Fetcher<K, V> implements Runnable, Closeable {
     @VisibleForTesting
     Map<ConsumerRecord<K, V>, Future<ConsumerRecord<K, V>>> pendingFutures() {
         return pendingFutures;
+    }
+
+    private void markClosed() {
+        closed = true;
     }
 
     private boolean closed() {
