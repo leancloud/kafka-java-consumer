@@ -203,15 +203,15 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
 
     private String fetcherThreadName(Collection<String> topics) {
         final String firstTopic = topics.iterator().next();
-        String postfix = firstTopic.substring(0, min(10, firstTopic.length()));
-        postfix += topics.size() > 1 || firstTopic.length() > 10 ? "..." : "";
+        String postfix = firstTopic.substring(0, min(50, firstTopic.length()));
+        postfix += topics.size() > 1 || firstTopic.length() > 50 ? "..." : "";
         return "kafka-fetcher-for-" + postfix;
     }
 
     private String fetcherThreadName(Pattern pattern) {
         final String patternInString = pattern.toString();
-        String postfix = patternInString.substring(0, min(10, patternInString.length()));
-        postfix += patternInString.length() > 10 ? "..." : "";
+        String postfix = patternInString.substring(0, min(50, patternInString.length()));
+        postfix += patternInString.length() > 50 ? "..." : "";
         return "kafka-fetcher-for-" + postfix;
     }
 }
