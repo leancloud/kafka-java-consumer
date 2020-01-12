@@ -189,8 +189,11 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
         // returned CompletableFuture
         final CompletableFuture<UnsubscribedStatus> ret = new CompletableFuture<>();
         fetcher.unsubscribeStatusFuture().thenAccept(status -> {
-            close();
-            ret.complete(status);
+            try {
+                close();
+            } finally {
+                ret.complete(status);
+            }
         });
         return ret;
     }

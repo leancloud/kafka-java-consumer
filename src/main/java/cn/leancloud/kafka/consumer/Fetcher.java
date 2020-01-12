@@ -153,7 +153,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
 
                 unsubscribedStatus = UnsubscribedStatus.ERROR;
                 markClosed();
-                logger.error("Fetcher quit with unexpected exception. Will rebalance after poll timeout.", ex);
+                logger.error("Fetcher quit with unexpected exception.", ex);
                 break;
             }
         }
