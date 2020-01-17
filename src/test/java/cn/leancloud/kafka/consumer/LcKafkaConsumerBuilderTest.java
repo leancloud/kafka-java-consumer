@@ -116,6 +116,14 @@ public class LcKafkaConsumerBuilderTest {
     }
 
     @Test
+    public void testNullForceSeekDestination() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .forceSeekTo(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("destination");
+    }
+
+    @Test
     public void testNegativeShutdownTimeoutMs() {
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
                 .gracefulShutdownTimeoutMillis(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
@@ -231,6 +239,7 @@ public class LcKafkaConsumerBuilderTest {
         final LcKafkaConsumer<Object, Object> consumer = LcKafkaConsumerBuilder.newBuilder(configs, testingHandler)
                 .mockKafkaConsumer(new MockConsumer<>(OffsetResetStrategy.LATEST))
                 .pollTimeout(Duration.ofMillis(1000))
+                .forceSeekTo(ConsumerSeekDestination.END)
                 .maxPendingAsyncCommits(100)
                 .workerPool(workerPool, false)
                 .recommitInterval(Duration.ofMinutes(20))
