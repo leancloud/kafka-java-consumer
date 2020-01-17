@@ -93,8 +93,8 @@ final class Fetcher<K, V> implements Runnable, Closeable {
 
     Fetcher(LcKafkaConsumerBuilder<K, V> consumerBuilder) {
         this(consumerBuilder.getConsumer(), consumerBuilder.getPollTimeout(), consumerBuilder.getConsumerRecordHandler(),
-                consumerBuilder.getWorkerPool(), consumerBuilder.getPolicy(), consumerBuilder.gracefulShutdownTimeout(),
-                consumerBuilder.handleRecordTimeout());
+                consumerBuilder.getWorkerPool(), consumerBuilder.getPolicy(), consumerBuilder.getGracefulShutdownTimeout(),
+                consumerBuilder.getHandleRecordTimeout());
     }
 
     Fetcher(Consumer<K, V> consumer,
@@ -153,7 +153,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
 
                 unsubscribedStatus = UnsubscribedStatus.ERROR;
                 markClosed();
-                logger.error("Fetcher quit with unexpected exception. Will rebalance after poll timeout.", ex);
+                logger.error("Fetcher quit with unexpected exception.", ex);
                 break;
             }
         }

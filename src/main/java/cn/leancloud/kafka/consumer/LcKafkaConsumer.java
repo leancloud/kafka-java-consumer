@@ -51,6 +51,7 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
     private final ExecutorService workerPool;
     private final CommitPolicy<K, V> policy;
     private final boolean shutdownWorkerPoolOnStop;
+    private final ConsumerSeekDestination forceSeekTo;
     private volatile State state;
 
     LcKafkaConsumer(LcKafkaConsumerBuilder<K, V> builder) {
@@ -60,6 +61,7 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
         this.shutdownWorkerPoolOnStop = builder.isShutdownWorkerPoolOnStop();
         this.policy = builder.getPolicy();
         this.fetcher = new Fetcher<>(builder);
+        this.forceSeekTo = builder.getForceSeekTo();
         this.fetcherThread = new Thread(fetcher);
     }
 
@@ -89,7 +91,7 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
 
         ensureInInit();
 
-        consumer.subscribe(topics, new RebalanceListener<>(consumer, policy));
+        consumer.subscribe(topics, new RebalanceListener<>(consumer, policy, forceSeekTo));
 
         fetcherThread.setName(fetcherThreadName(topics));
         fetcherThread.start();
@@ -118,7 +120,7 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
 
         ensureInInit();
 
-        consumer.subscribe(pattern, new RebalanceListener<>(consumer, policy));
+        consumer.subscribe(pattern, new RebalanceListener<>(consumer, policy, forceSeekTo));
 
         fetcherThread.setName(fetcherThreadName(pattern));
         fetcherThread.start();
@@ -189,8 +191,11 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
         // returned CompletableFuture
         final CompletableFuture<UnsubscribedStatus> ret = new CompletableFuture<>();
         fetcher.unsubscribeStatusFuture().thenAccept(status -> {
-            close();
-            ret.complete(status);
+            try {
+                close();
+            } finally {
+                ret.complete(status);
+            }
         });
         return ret;
     }

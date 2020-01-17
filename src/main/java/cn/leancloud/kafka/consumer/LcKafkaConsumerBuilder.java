@@ -84,6 +84,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
     private Duration handleRecordTimeout = Duration.ZERO;
     private Map<String, Object> configs;
     private ConsumerRecordHandler<K, V> consumerRecordHandler;
+    private ConsumerSeekDestination forceSeekTo = ConsumerSeekDestination.NONE;
     @Nullable
     private Consumer<K, V> consumer;
     @Nullable
@@ -363,6 +364,25 @@ public final class LcKafkaConsumerBuilder<K, V> {
     }
 
     /**
+     * After subscribed to any topic, force seek offsets for every assigned partitions to beginning or end no matter
+     * where the recorded offsets for the group of this consumer are. The difference between this configuration with
+     * "auto.offset.reset" in kafka configurations is that "auto.offset.reset" only reset offset to beginning or end
+     * when there's no recorded offsets or the previous recorded offsets was removed, while {@code forceSeekTo()} will
+     * reset offsets even when there are offsets records.
+     * <p>
+     * Please note that the reset offset operation will take place only once when a partition is assigned on the
+     * first time. If a partition was revoked then assigned again, the offset of this partition will not reset again.
+     *
+     * @param destination where to seek to
+     * @return this
+     */
+    public LcKafkaConsumerBuilder<K, V> forceSeekTo(ConsumerSeekDestination destination) {
+        requireNonNull(destination, "destination");
+        this.forceSeekTo = destination;
+        return this;
+    }
+
+    /**
      * Build a consumer which commits offset automatically at fixed interval. It is both OK for with or without a
      * worker thread pool. But without a worker pool, please tune the {@code max.poll.interval.ms} in
      * Kafka configs as mentioned in {@link LcKafkaConsumerBuilder#workerPool(ExecutorService, boolean)}.
@@ -530,17 +550,21 @@ public final class LcKafkaConsumerBuilder<K, V> {
         return pollTimeout;
     }
 
-    Duration gracefulShutdownTimeout() {
+    Duration getGracefulShutdownTimeout() {
         return gracefulShutdownTimeout;
     }
 
-    Duration handleRecordTimeout() {
+    Duration getHandleRecordTimeout() {
         return handleRecordTimeout;
     }
 
     CommitPolicy<K, V> getPolicy() {
         assert policy != null;
         return policy;
+    }
+
+    ConsumerSeekDestination getForceSeekTo() {
+        return forceSeekTo;
     }
 
     private Consumer<K, V> buildConsumer(boolean autoCommit) {

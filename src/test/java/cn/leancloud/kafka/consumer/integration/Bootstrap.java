@@ -1,9 +1,6 @@
 package cn.leancloud.kafka.consumer.integration;
 
-import cn.leancloud.kafka.consumer.ConsumerRecordHandler;
-import cn.leancloud.kafka.consumer.LcKafkaConsumer;
-import cn.leancloud.kafka.consumer.LcKafkaConsumerBuilder;
-import cn.leancloud.kafka.consumer.NamedThreadFactory;
+import cn.leancloud.kafka.consumer.*;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
