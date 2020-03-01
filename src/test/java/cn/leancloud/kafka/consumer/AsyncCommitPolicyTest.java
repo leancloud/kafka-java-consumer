@@ -31,7 +31,7 @@ public class AsyncCommitPolicyTest {
     @Before
     public void setUp() {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
-        policy = new AsyncCommitPolicy<>(consumer, Duration.ofHours(1), defaultMaxPendingAsyncCommits);
+        policy = new AsyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofHours(1), defaultMaxPendingAsyncCommits);
         partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         assignPartitions(consumer, partitions, 0L);
         pendingRecords = generateConsumedRecords(consumer, partitions);
@@ -69,7 +69,7 @@ public class AsyncCommitPolicyTest {
 
     @Test
     public void testSyncRecommit() throws Exception {
-        policy = new AsyncCommitPolicy<>(consumer, Duration.ofMillis(200), defaultMaxPendingAsyncCommits);
+        policy = new AsyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofMillis(200), defaultMaxPendingAsyncCommits);
         long nextRecommitNanos = policy.nextRecommitNanos();
         assignPartitions(consumer, toPartitions(range(0, 30).boxed().collect(toList())), 0L);
 
@@ -98,7 +98,7 @@ public class AsyncCommitPolicyTest {
 
     @Test
     public void testAsyncRecommit() throws Exception {
-        policy = new AsyncCommitPolicy<>(consumer, Duration.ofMillis(200), defaultMaxPendingAsyncCommits);
+        policy = new AsyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofMillis(200), defaultMaxPendingAsyncCommits);
         long nextRecommitNanos = policy.nextRecommitNanos();
         assignPartitions(consumer, toPartitions(range(0, 30).boxed().collect(toList())), 0L);
 
@@ -143,7 +143,7 @@ public class AsyncCommitPolicyTest {
         doNothing().when(mockConsumer).commitAsync(any());
 
         int asyncCommitTimes = pendingRecords.size() - 1;
-        policy = new AsyncCommitPolicy<>(mockConsumer, Duration.ofHours(1), asyncCommitTimes);
+        policy = new AsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofHours(1), asyncCommitTimes);
 
         for (ConsumerRecord<Object, Object> record : pendingRecords.subList(0, asyncCommitTimes)) {
             addCompleteRecordInPolicy(policy, record);
@@ -172,7 +172,7 @@ public class AsyncCommitPolicyTest {
         final Consumer<Object, Object> mockConsumer = Mockito.mock(Consumer.class);
         doNothing().when(mockConsumer).commitAsync(any());
 
-        policy = new AsyncCommitPolicy<>(mockConsumer, Duration.ofHours(1), 10);
+        policy = new AsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofHours(1), 10);
 
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
             addCompleteRecordInPolicy(policy, record);
@@ -197,7 +197,7 @@ public class AsyncCommitPolicyTest {
             return null;
         }).when(mockConsumer).commitAsync(any());
 
-        policy = new AsyncCommitPolicy<>(mockConsumer, Duration.ofHours(1), 10);
+        policy = new AsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofHours(1), 10);
 
         final ConsumerRecord<Object, Object> triggerFailedRecord = pendingRecords.get(0);
         addCompleteRecordInPolicy(policy, triggerFailedRecord);

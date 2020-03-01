@@ -9,21 +9,24 @@ import java.util.HashSet;
 import java.util.Set;
 
 final class SyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K, V> {
-    SyncCommitPolicy(Consumer<K, V> consumer, Duration recommitInterval) {
-        super(consumer, recommitInterval);
+    SyncCommitPolicy(Consumer<K, V> consumer,
+                     Duration syncCommitRetryInterval,
+                     int maxAttemptsForEachSyncCommit,
+                     Duration recommitInterval) {
+        super(consumer, syncCommitRetryInterval, maxAttemptsForEachSyncCommit, recommitInterval);
     }
 
     @Override
     public Set<TopicPartition> tryCommit(boolean noPendingRecords) {
         if (noPendingRecords && !completedTopicOffsets.isEmpty()) {
-            consumer.commitSync();
+            commitSync();
             final Set<TopicPartition> completePartitions = new HashSet<>(completedTopicOffsets.keySet());
             completedTopicOffsets.clear();
             topicOffsetHighWaterMark.clear();
             updateNextRecommitTime();
             return completePartitions;
         } else if (needRecommit()) {
-            consumer.commitSync(offsetsForRecommit());
+            commitSync(offsetsForRecommit());
             updateNextRecommitTime();
         }
         return Collections.emptySet();

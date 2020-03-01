@@ -1,9 +1,6 @@
 package cn.leancloud.kafka.consumer;
 
-import org.apache.kafka.clients.consumer.Consumer;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.clients.consumer.MockConsumer;
+import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,6 +82,8 @@ public final class LcKafkaConsumerBuilder<K, V> {
     private Map<String, Object> configs;
     private ConsumerRecordHandler<K, V> consumerRecordHandler;
     private ConsumerSeekDestination forceSeekTo = ConsumerSeekDestination.NONE;
+    private Duration syncCommitRetryInterval = Duration.ofSeconds(1);
+    private int maxAttemptsForEachSyncCommit = 3;
     @Nullable
     private Consumer<K, V> consumer;
     @Nullable
@@ -232,6 +231,83 @@ public final class LcKafkaConsumerBuilder<K, V> {
         requireArgument(!gracefulShutdownTimeout.isNegative(),
                 "gracefulShutdownTimeout: %s (expect positive or zero duration)", gracefulShutdownTimeout);
         this.gracefulShutdownTimeout = gracefulShutdownTimeout;
+        return this;
+    }
+
+    /**
+     * Sets the amount of time to wait before retry a failed synchronous commit on calling {@link KafkaConsumer#commitSync()}.
+     * or {@link KafkaConsumer#commitSync(Map)}. Every synchronous commit may fail but most of times they are caused by
+     * {@link org.apache.kafka.common.errors.RetriableException} and we can retry commit on this kind of exception safely.
+     * This configuration set the interval between each retry.
+     * <p>
+     * For those failures of asynchronous commit by calling {@link KafkaConsumer#commitAsync()} or
+     * {@link KafkaConsumer#commitAsync(OffsetCommitCallback)}, we retry them by a synchronous commit automatically
+     * when we found any of them. So we only need configurations for synchronous commits.
+     * <p>
+     * The default {@code syncCommitRetryIntervalMillis} is 1000.
+     *
+     * @param syncCommitRetryIntervalMillis the retry interval in milliseconds
+     * @return this
+     * @throws IllegalArgumentException if {@code syncCommitRetryIntervalMillis} is a negative value
+     */
+    public LcKafkaConsumerBuilder<K, V> syncCommitRetryIntervalMillis(long syncCommitRetryIntervalMillis) {
+        requireArgument(syncCommitRetryIntervalMillis >= 0,
+                "syncCommitRetryIntervalMillis: %s (expected >= 0)", syncCommitRetryIntervalMillis);
+        this.syncCommitRetryInterval = Duration.ofMillis(syncCommitRetryIntervalMillis);
+        return this;
+    }
+
+    /**
+     * Sets the amount of time to wait before retry a failed synchronous commit on calling {@link KafkaConsumer#commitSync()}.
+     * or {@link KafkaConsumer#commitSync(Map)}. Every synchronous commit may fail but most of times they are caused by
+     * {@link org.apache.kafka.common.errors.RetriableException} and we can retry commit on this kind of exception safely.
+     * This configuration set the interval between each retry.
+     * <p>
+     * For those failures of asynchronous commit by calling {@link KafkaConsumer#commitAsync()} or
+     * {@link KafkaConsumer#commitAsync(OffsetCommitCallback)}, we retry them by a synchronous commit automatically
+     * when we found any of them. So we only need configurations for synchronous commits.
+     * <p>
+     * The default {@code syncCommitRetryInterval} is 1 second.
+     *
+     * @param syncCommitRetryInterval the retry interval
+     * @return this
+     * @throws NullPointerException     if {@code syncCommitRetryInterval} is null
+     * @throws IllegalArgumentException if {@code syncCommitRetryInterval} is a negative duration
+     */
+    public LcKafkaConsumerBuilder<K, V> syncCommitRetryInterval(Duration syncCommitRetryInterval) {
+        requireNonNull(syncCommitRetryInterval, "syncCommitRetryInterval");
+        requireArgument(!syncCommitRetryInterval.isNegative(),
+                "syncCommitRetryInterval: %s (expect positive or zero duration)", syncCommitRetryInterval);
+        this.syncCommitRetryInterval = syncCommitRetryInterval;
+        return this;
+    }
+
+    /**
+     * Sets the maximum attempt times for a synchronous commit by calling {@link KafkaConsumer#commitSync()}.
+     * or {@link KafkaConsumer#commitSync(Map)}. Every synchronous commit may fail but most of times they are caused by
+     * {@link org.apache.kafka.common.errors.RetriableException} and we can retry commit on this kind of exception safely.
+     * This configuration cap the maximum retry times. If attempts reach to {@code maxAttemptsForEachSyncCommit}, the cached
+     * {@link org.apache.kafka.common.errors.RetriableException} will be rethrown by then it will cause the Kafka Consumer
+     * to stop and quit.
+     * <p>
+     * For those failures of asynchronous commit by calling {@link KafkaConsumer#commitAsync()} or
+     * {@link KafkaConsumer#commitAsync(OffsetCommitCallback)}, we retry them by a synchronous commit automatically
+     * when we found any of them. So we only need configurations for synchronous commits.
+     * <p>
+     * Please note that {@code maxAttemptsForEachSyncCommit} multiplies
+     * {@code syncCommitRetryInterval} should far lower than {@code max.poll.interval.ms}, otherwise Kafka Consumer
+     * may encounter session timeout or polling timeout due to not calling {@link KafkaConsumer#poll(long)} for too long.
+     * <p>
+     * The default {@code maxAttemptsForEachSyncCommit} is 3.
+     *
+     * @param maxAttemptsForEachSyncCommit maximum attempt times for a synchronous commit
+     * @return this
+     * @throws IllegalArgumentException if {@code maxAttemptsForEachSyncCommit} is zero or a negative value
+     */
+    public LcKafkaConsumerBuilder<K, V> maxAttemptsForEachSyncCommit(int maxAttemptsForEachSyncCommit) {
+        requireArgument(maxAttemptsForEachSyncCommit > 0,
+                "maxAttemptsForEachSyncCommit: %s (expect > 0)", maxAttemptsForEachSyncCommit);
+        this.maxAttemptsForEachSyncCommit = maxAttemptsForEachSyncCommit;
         return this;
     }
 
@@ -407,7 +483,8 @@ public final class LcKafkaConsumerBuilder<K, V> {
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildAuto() {
         checkConfigs(AutoCommitConsumerConfigs.values());
         consumer = buildConsumer(true);
-        policy = workerPool == ImmediateExecutorService.INSTANCE ? NoOpCommitPolicy.getInstance() : new AutoCommitPolicy<>(consumer);
+        policy = workerPool == ImmediateExecutorService.INSTANCE ?
+                NoOpCommitPolicy.getInstance() : new AutoCommitPolicy<>(consumer);
         return doBuild();
     }
 
@@ -435,7 +512,11 @@ public final class LcKafkaConsumerBuilder<K, V> {
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildSync() {
         consumer = buildConsumer(false);
-        policy = new SyncCommitPolicy<>(consumer, getRecommitInterval());
+        policy = new SyncCommitPolicy<>(
+                consumer,
+                syncCommitRetryInterval,
+                maxAttemptsForEachSyncCommit,
+                getRecommitInterval());
         return doBuild();
     }
 
@@ -462,7 +543,11 @@ public final class LcKafkaConsumerBuilder<K, V> {
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildPartialSync() {
         consumer = buildConsumer(false);
-        policy = new PartialSyncCommitPolicy<>(consumer, getRecommitInterval());
+        policy = new PartialSyncCommitPolicy<>(
+                consumer,
+                syncCommitRetryInterval,
+                maxAttemptsForEachSyncCommit,
+                getRecommitInterval());
         return doBuild();
     }
 
@@ -494,7 +579,12 @@ public final class LcKafkaConsumerBuilder<K, V> {
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildAsync() {
         consumer = buildConsumer(false);
-        policy = new AsyncCommitPolicy<>(consumer, getRecommitInterval(), maxPendingAsyncCommits);
+        policy = new AsyncCommitPolicy<>(
+                consumer,
+                syncCommitRetryInterval,
+                maxAttemptsForEachSyncCommit,
+                getRecommitInterval(),
+                maxPendingAsyncCommits);
         return doBuild();
     }
 
@@ -525,7 +615,12 @@ public final class LcKafkaConsumerBuilder<K, V> {
      */
     public <K1 extends K, V1 extends V> LcKafkaConsumer<K1, V1> buildPartialAsync() {
         consumer = buildConsumer(false);
-        policy = new PartialAsyncCommitPolicy<>(consumer, getRecommitInterval(), maxPendingAsyncCommits);
+        policy = new PartialAsyncCommitPolicy<>(
+                consumer,
+                syncCommitRetryInterval,
+                maxAttemptsForEachSyncCommit,
+                getRecommitInterval(),
+                maxPendingAsyncCommits);
         return doBuild();
     }
 

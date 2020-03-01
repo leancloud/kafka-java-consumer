@@ -26,7 +26,7 @@ public class SyncCommitPolicyTest {
     @Before
     public void setUp() {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
-        policy = new SyncCommitPolicy<>(consumer, Duration.ofHours(1));
+        policy = new SyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofHours(1));
     }
 
     @After
@@ -81,7 +81,7 @@ public class SyncCommitPolicyTest {
 
     @Test
     public void testRecommit() throws Exception{
-        policy = new SyncCommitPolicy<>(consumer, Duration.ofMillis(200));
+        policy = new SyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofMillis(200));
         long nextRecommitNanos = policy.nextRecommitNanos();
         assignPartitions(consumer, toPartitions(range(0, 30).boxed().collect(toList())), 0L);
 

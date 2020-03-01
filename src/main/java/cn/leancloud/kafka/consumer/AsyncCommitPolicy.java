@@ -21,8 +21,12 @@ final class AsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K,
     private int pendingAsyncCommitCounter;
     private boolean forceSync;
 
-    AsyncCommitPolicy(Consumer<K, V> consumer, Duration recommitInterval, int maxPendingAsyncCommits) {
-        super(consumer, recommitInterval);
+    AsyncCommitPolicy(Consumer<K, V> consumer,
+                      Duration syncCommitRetryInterval,
+                      int maxAttemptsForEachSyncCommit,
+                      Duration recommitInterval,
+                      int maxPendingAsyncCommits) {
+        super(consumer, syncCommitRetryInterval, maxAttemptsForEachSyncCommit, recommitInterval);
         this.maxPendingAsyncCommits = maxPendingAsyncCommits;
         this.callback = new AsyncCommitCallback();
     }
@@ -91,9 +95,9 @@ final class AsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K,
 
     private void syncCommit(Map<TopicPartition, OffsetAndMetadata> offsets) {
         if (offsets.isEmpty()) {
-            consumer.commitSync();
+            commitSync();
         } else {
-            consumer.commitSync(offsets);
+            commitSync(offsets);
         }
     }
 
