@@ -9,7 +9,7 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
-final class PartialSyncCommitPolicy<K, V> extends AbstractPartialCommitPolicy<K, V> {
+final class PartialSyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K, V> {
     PartialSyncCommitPolicy(Consumer<K, V> consumer, Duration forceWholeCommitInterval) {
         super(consumer, forceWholeCommitInterval);
     }
@@ -19,7 +19,6 @@ final class PartialSyncCommitPolicy<K, V> extends AbstractPartialCommitPolicy<K,
         final Map<TopicPartition, OffsetAndMetadata> offsets = offsetsForPartialCommit();
         if (!offsets.isEmpty()) {
             consumer.commitSync(offsets);
-            updateNextRecommitTime();
         }
 
         if (completedTopicOffsets.isEmpty()) {
@@ -28,6 +27,16 @@ final class PartialSyncCommitPolicy<K, V> extends AbstractPartialCommitPolicy<K,
             final Set<TopicPartition> partitions = getCompletedPartitions(noPendingRecords);
             clearCachedCompletedPartitionsRecords(partitions, noPendingRecords);
             return partitions;
+        }
+    }
+
+    private Map<TopicPartition, OffsetAndMetadata> offsetsForPartialCommit() {
+        if (needRecommit()) {
+            final Map<TopicPartition, OffsetAndMetadata> offsets = offsetsForRecommit();
+            updateNextRecommitTime();
+            return offsets;
+        } else {
+            return completedTopicOffsets;
         }
     }
 }

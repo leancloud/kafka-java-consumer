@@ -15,12 +15,12 @@ final class NoOpCommitPolicy<K, V> implements CommitPolicy<K, V> {
     }
 
     @Override
-    public void addPendingRecord(ConsumerRecord<K, V> record) {
+    public void markPendingRecord(ConsumerRecord<K, V> record) {
 
     }
 
     @Override
-    public void completeRecord(ConsumerRecord<K, V> record) {
+    public void markCompletedRecord(ConsumerRecord<K, V> record) {
 
     }
 
@@ -30,7 +30,7 @@ final class NoOpCommitPolicy<K, V> implements CommitPolicy<K, V> {
     }
 
     @Override
-    public Set<TopicPartition> partialCommit() {
+    public Set<TopicPartition> syncPartialCommit() {
         return Collections.emptySet();
     }
 }

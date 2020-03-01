@@ -6,7 +6,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -46,7 +45,7 @@ public class AbstractCommitPolicyTest {
     @Test
     public void testAddOnePendingRecord() {
         ConsumerRecord<Object, Object> record = new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg);
-        policy.addPendingRecord(record);
+        policy.markPendingRecord(record);
         assertThat(policy.topicOffsetHighWaterMark())
                 .hasSize(1)
                 .containsOnlyKeys(partition(101))
@@ -55,10 +54,10 @@ public class AbstractCommitPolicyTest {
 
     @Test
     public void testAddSeveralPendingRecord() {
-        policy.addPendingRecord(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
-        policy.addPendingRecord(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
-        policy.addPendingRecord(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
-        policy.addPendingRecord(new ConsumerRecord<>(testingTopic, 101, 1004, defaultKey, defaultMsg));
+        policy.markPendingRecord(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
+        policy.markPendingRecord(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
+        policy.markPendingRecord(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
+        policy.markPendingRecord(new ConsumerRecord<>(testingTopic, 101, 1004, defaultKey, defaultMsg));
 
         assertThat(policy.topicOffsetHighWaterMark())
                 .hasSize(3)
@@ -72,7 +71,7 @@ public class AbstractCommitPolicyTest {
     @Test
     public void testAddOneCompleteRecord() {
         ConsumerRecord<Object, Object> record = new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg);
-        policy.completeRecord(record);
+        policy.markCompletedRecord(record);
         assertThat(policy.completedTopicOffsets())
                 .hasSize(1)
                 .containsOnlyKeys(partition(101))
@@ -81,10 +80,10 @@ public class AbstractCommitPolicyTest {
 
     @Test
     public void testAddSeveralCompleteRecord() {
-        policy.completeRecord(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
-        policy.completeRecord(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
-        policy.completeRecord(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
-        policy.completeRecord(new ConsumerRecord<>(testingTopic, 101, 1004, defaultKey, defaultMsg));
+        policy.markCompletedRecord(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
+        policy.markCompletedRecord(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
+        policy.markCompletedRecord(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
+        policy.markCompletedRecord(new ConsumerRecord<>(testingTopic, 101, 1004, defaultKey, defaultMsg));
 
         assertThat(policy.completedTopicOffsets())
                 .hasSize(3)
@@ -122,17 +121,17 @@ public class AbstractCommitPolicyTest {
 
         for (ConsumerRecord<Object, Object> record : highWaterMark) {
             consumer.addRecord(record);
-            policy.addPendingRecord(record);
+            policy.markPendingRecord(record);
         }
 
         for (ConsumerRecord<Object, Object> record : completeRecords) {
             consumer.addRecord(record);
-            policy.completeRecord(record);
+            policy.markCompletedRecord(record);
         }
 
         consumer.poll(0);
 
-        assertThat(policy.partialCommit())
+        assertThat(policy.syncPartialCommit())
                 .hasSize(2)
                 .containsExactlyInAnyOrder(partition(102), partition(111));
         assertThat(consumer.committed(partition(101))).isEqualTo(offset(1007L));

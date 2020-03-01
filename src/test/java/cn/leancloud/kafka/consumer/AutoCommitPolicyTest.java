@@ -8,7 +8,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -47,13 +46,13 @@ public class AutoCommitPolicyTest {
         final List<ConsumerRecord<Object, Object>> pendingRecords = preparePendingRecords(partitions, 2);
         // two records for each partitions
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
-            policy.addPendingRecord(record);
+            policy.markPendingRecord(record);
         }
 
         // complete the first half of the partitions
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
             if (record.partition() < partitions.size() / 2 && record.offset() < 3) {
-                policy.completeRecord(record);
+                policy.markCompletedRecord(record);
             }
         }
 

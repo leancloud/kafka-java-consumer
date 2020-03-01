@@ -145,7 +145,7 @@ public class FetcherTest {
 
         fetcherThread.join();
         assertThat(fetcher.pendingFutures()).isEmpty();
-        verify(policy, times(1)).partialCommit();
+        verify(policy, times(1)).syncPartialCommit();
         assertThat(consumer.subscription()).isEmpty();
         assertThat(consumer.closed()).isTrue();
         assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.ERROR);
@@ -169,7 +169,7 @@ public class FetcherTest {
         fetcher.close();
         fetcherThread.join();
         assertThat(fetcher.pendingFutures()).isEmpty();
-        verify(policy, times(1)).partialCommit();
+        verify(policy, times(1)).syncPartialCommit();
         assertThat(consumer.subscription()).isEmpty();
         assertThat(consumer.closed()).isTrue();
         assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.CLOSED);
@@ -202,8 +202,8 @@ public class FetcherTest {
 
         fetcherThread.join();
         assertThat(fetcher.pendingFutures()).isEmpty();
-        verify(policy, times(1)).partialCommit();
-        verify(policy, never()).completeRecord(any());
+        verify(policy, times(1)).syncPartialCommit();
+        verify(policy, never()).markCompletedRecord(any());
         verify(policy, never()).tryCommit(true);
         assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.ERROR);
         executors.shutdownNow();
@@ -212,7 +212,7 @@ public class FetcherTest {
     @Test
     public void testExceptionThrownOnShutdown() throws Exception {
         executorService = mock(ExecutorService.class);
-        when(policy.partialCommit()).thenThrow(new RuntimeException("expected testing exception"));
+        when(policy.syncPartialCommit()).thenThrow(new RuntimeException("expected testing exception"));
         fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, Duration.ZERO, Duration.ZERO);
         final CompletableFuture<UnsubscribedStatus> unsubscribedStatusFuture = fetcher.unsubscribeStatusFuture();
         fetcherThread = new Thread(fetcher);
@@ -221,7 +221,7 @@ public class FetcherTest {
 
         fetcher.close();
         fetcherThread.join();
-        verify(policy, times(1)).partialCommit();
+        verify(policy, times(1)).syncPartialCommit();
         assertThat(consumer.subscription()).isEmpty();
         assertThat(consumer.closed()).isTrue();
         assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.CLOSED);
@@ -242,7 +242,7 @@ public class FetcherTest {
 
         fetcher.close();
         fetcherThread.join();
-        verify(policy, times(1)).partialCommit();
+        verify(policy, times(1)).syncPartialCommit();
         verify(mockedConsumer, times(1)).close(100, TimeUnit.NANOSECONDS);
         assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.CLOSED);
     }
@@ -267,9 +267,9 @@ public class FetcherTest {
 
         fetcherThread.join();
         assertThat(fetcher.pendingFutures()).isEmpty();
-        verify(policy, times(1)).partialCommit();
-        verify(policy, times(pendingRecords.size())).addPendingRecord(any());
-        verify(policy, times(pendingRecords.size() - 1)).completeRecord(any());
+        verify(policy, times(1)).syncPartialCommit();
+        verify(policy, times(pendingRecords.size())).markPendingRecord(any());
+        verify(policy, times(pendingRecords.size() - 1)).markCompletedRecord(any());
         verify(policy, never()).tryCommit(true);
         assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.ERROR);
         assertThat(consumer.closed()).isTrue();
@@ -294,9 +294,9 @@ public class FetcherTest {
 
         fetcherThread.join();
         assertThat(fetcher.pendingFutures()).isEmpty();
-        verify(policy, times(1)).partialCommit();
-        verify(policy, times(1)).addPendingRecord(eq(defaultTestingRecord));
-        verify(policy, never()).completeRecord(any());
+        verify(policy, times(1)).syncPartialCommit();
+        verify(policy, times(1)).markPendingRecord(eq(defaultTestingRecord));
+        verify(policy, never()).markCompletedRecord(any());
         verify(policy, never()).tryCommit(true);
         verify(consumerRecordHandler, times(1)).handleRecord(defaultTestingRecord);
         assertThat(unsubscribedStatusFuture).isCompletedWithValue(UnsubscribedStatus.ERROR);
@@ -312,7 +312,7 @@ public class FetcherTest {
         doAnswer(invocation -> {
             barrier.await();
             return null;
-        }).when(policy).completeRecord(defaultTestingRecord);
+        }).when(policy).markCompletedRecord(defaultTestingRecord);
         consumer.addRecord(defaultTestingRecord);
 
         fetcher = new Fetcher<>(consumer, pollTimeout, consumerRecordHandler, executorService, policy, defaultGracefulShutdownTimeout, Duration.ZERO);
@@ -325,9 +325,9 @@ public class FetcherTest {
         fetcherThread.join();
         assertThat(fetcher.pendingFutures()).isEmpty();
         assertThat(consumer.paused()).isEmpty();
-        verify(policy, times(1)).partialCommit();
-        verify(policy, times(1)).addPendingRecord(eq(defaultTestingRecord));
-        verify(policy, times(1)).completeRecord(defaultTestingRecord);
+        verify(policy, times(1)).syncPartialCommit();
+        verify(policy, times(1)).markPendingRecord(eq(defaultTestingRecord));
+        verify(policy, times(1)).markCompletedRecord(defaultTestingRecord);
         verify(policy, atLeastOnce()).tryCommit(anyBoolean());
         verify(consumerRecordHandler, times(1)).handleRecord(defaultTestingRecord);
         assertThat(consumer.closed()).isTrue();
@@ -354,7 +354,7 @@ public class FetcherTest {
             final ConsumerRecord<Object, Object> completeRecord = invocation.getArgument(0);
             completePartitions.add(new TopicPartition(testingTopic, completeRecord.partition()));
             return null;
-        }).when(policy).completeRecord(any());
+        }).when(policy).markCompletedRecord(any());
 
         // resume completed partitions
         when(policy.tryCommit(true)).thenReturn(completePartitions);
@@ -378,9 +378,9 @@ public class FetcherTest {
         fetcherThread.join();
         assertThat(fetcher.pendingFutures()).isEmpty();
 
-        verify(policy, times(pendingRecords.size())).addPendingRecord(any());
-        verify(policy, times(pendingRecords.size())).completeRecord(any());
-        verify(policy, times(1)).partialCommit();
+        verify(policy, times(pendingRecords.size())).markPendingRecord(any());
+        verify(policy, times(pendingRecords.size())).markCompletedRecord(any());
+        verify(policy, times(1)).syncPartialCommit();
         verify(consumerRecordHandler, times(pendingRecords.size())).handleRecord(any());
         assertThat(consumer.closed()).isTrue();
         executors.shutdown();
@@ -412,7 +412,7 @@ public class FetcherTest {
             final ConsumerRecord<Object, Object> completeRecord = invocation.getArgument(0);
             completePartitions.add(new TopicPartition(testingTopic, completeRecord.partition()));
             return null;
-        }).when(policy).completeRecord(any());
+        }).when(policy).markCompletedRecord(any());
 
         // resume completed partitions
         when(policy.tryCommit(false)).thenReturn(completePartitions);
@@ -437,9 +437,9 @@ public class FetcherTest {
         fetcherThread.join();
         assertThat(fetcher.pendingFutures()).isEmpty();
 
-        verify(policy, times(pendingRecords.size())).addPendingRecord(any());
-        verify(policy, times(pendingRecords.size() / 2)).completeRecord(any());
-        verify(policy, times(1)).partialCommit();
+        verify(policy, times(pendingRecords.size())).markPendingRecord(any());
+        verify(policy, times(pendingRecords.size() / 2)).markCompletedRecord(any());
+        verify(policy, times(1)).syncPartialCommit();
         verify(consumerRecordHandler, times(pendingRecords.size())).handleRecord(any());
         assertThat(consumer.closed()).isTrue();
 

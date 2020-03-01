@@ -26,7 +26,7 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
     }
 
     @Override
-    public void addPendingRecord(ConsumerRecord<K, V> record) {
+    public void markPendingRecord(ConsumerRecord<K, V> record) {
         topicOffsetHighWaterMark.merge(
                 new TopicPartition(record.topic(), record.partition()),
                 record.offset() + 1,
@@ -34,7 +34,7 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
     }
 
     @Override
-    public void completeRecord(ConsumerRecord<K, V> record) {
+    public void markCompletedRecord(ConsumerRecord<K, V> record) {
         completedTopicOffsets.merge(
                 new TopicPartition(record.topic(), record.partition()),
                 new OffsetAndMetadata(record.offset() + 1L),
@@ -42,7 +42,7 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
     }
 
     @Override
-    public Set<TopicPartition> partialCommit() {
+    public Set<TopicPartition> syncPartialCommit() {
         consumer.commitSync(completedTopicOffsets);
         final Set<TopicPartition> partitions = checkCompletedPartitions();
         completedTopicOffsets.clear();

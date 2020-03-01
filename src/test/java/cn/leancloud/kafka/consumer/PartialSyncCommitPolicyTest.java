@@ -55,13 +55,13 @@ public class PartialSyncCommitPolicyTest {
         final List<ConsumerRecord<Object, Object>> pendingRecords = generateConsumedRecords(consumer, partitions, 2);
         // two records for each partitions
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
-            policy.addPendingRecord(record);
+            policy.markPendingRecord(record);
         }
 
         // complete the first half of the partitions
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
             if (record.partition() < partitions.size() / 2 && record.offset() < 3) {
-                policy.completeRecord(record);
+                policy.markCompletedRecord(record);
             }
         }
 
@@ -81,7 +81,7 @@ public class PartialSyncCommitPolicyTest {
         }
 
         assertThat(policy.completedTopicOffsets()).isEmpty();
-        assertThat(policy.nextRecommitNanos()).isGreaterThan(nextRecommitNanos);
+        assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
     }
 
     @Test
@@ -92,8 +92,8 @@ public class PartialSyncCommitPolicyTest {
         // two records for each partitions
         final List<ConsumerRecord<Object, Object>> pendingRecords = generateConsumedRecords(consumer, partitions,2);
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
-            policy.addPendingRecord(record);
-            policy.completeRecord(record);
+            policy.markPendingRecord(record);
+            policy.markCompletedRecord(record);
         }
 
         assertThat(policy.tryCommit(true))
@@ -105,7 +105,7 @@ public class PartialSyncCommitPolicyTest {
 
         assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
         assertThat(policy.completedTopicOffsets()).isEmpty();
-        assertThat(policy.nextRecommitNanos()).isGreaterThan(nextRecommitNanos);
+        assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
     }
 
     @Test
@@ -119,7 +119,7 @@ public class PartialSyncCommitPolicyTest {
         addCompleteRecordsInPolicy(policy, prevRecords);
         assertThat(policy.tryCommit(true))
                 .containsExactlyInAnyOrderElementsOf(toPartitions(range(0, 10).boxed().collect(toList())));
-        assertThat(policy.nextRecommitNanos()).isGreaterThan(nextRecommitNanos);
+        assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
 
         Thread.sleep(200);
         nextRecommitNanos = policy.nextRecommitNanos();

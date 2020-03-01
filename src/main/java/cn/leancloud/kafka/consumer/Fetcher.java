@@ -25,10 +25,6 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         private final long timeoutAtNanos;
         private final Time time;
 
-        TimeoutFuture(Future<ConsumerRecord<K, V>> wrappedFuture) {
-            this(wrappedFuture, Long.MAX_VALUE);
-        }
-
         TimeoutFuture(Future<ConsumerRecord<K, V>> wrappedFuture, long timeoutInNanos) {
             this(wrappedFuture, timeoutInNanos, Time.SYSTEM);
         }
@@ -193,13 +189,13 @@ final class Fetcher<K, V> implements Runnable, Closeable {
                 return record;
             });
             pendingFutures.put(record, timeoutAwareFuture(future));
-            policy.addPendingRecord(record);
+            policy.markPendingRecord(record);
         }
     }
 
-    private TimeoutFuture<K, V> timeoutAwareFuture(Future<ConsumerRecord<K, V>> future) {
+    private Future<ConsumerRecord<K, V>> timeoutAwareFuture(Future<ConsumerRecord<K, V>> future) {
         if (unlimitedHandleRecordTime()) {
-            return new TimeoutFuture<>(future);
+            return future;
         } else {
             return new TimeoutFuture<>(future, handleRecordTimeoutNanos);
         }
@@ -219,7 +215,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         assert !future.isCancelled();
         final Future<ConsumerRecord<K, V>> v = pendingFutures.remove(record);
         assert v != null;
-        policy.completeRecord(record);
+        policy.markCompletedRecord(record);
     }
 
     private void processTimeoutRecords() throws TimeoutException {
@@ -228,6 +224,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         }
 
         for (Map.Entry<ConsumerRecord<K, V>, Future<ConsumerRecord<K, V>>> entry : pendingFutures.entrySet()) {
+            // we can sure that this conversion must be success
             final TimeoutFuture<K, V> future = (TimeoutFuture<K, V>) entry.getValue();
             if (future.timeout()) {
                 future.cancel(false);
@@ -262,7 +259,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         long shutdownTimeout = 0L;
         try {
             shutdownTimeout = waitPendingFuturesDone();
-            policy.partialCommit();
+            policy.syncPartialCommit();
             pendingFutures.clear();
         } catch (Exception ex) {
             logger.error("Graceful shutdown got unexpected exception", ex);
@@ -285,7 +282,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
                 assert remain >= 0;
                 final ConsumerRecord<K, V> record = future.get(remain, TimeUnit.MILLISECONDS);
                 assert record != null;
-                policy.completeRecord(record);
+                policy.markCompletedRecord(record);
             } catch (TimeoutException ex) {
                 future.cancel(false);
             } catch (InterruptedException ex) {
