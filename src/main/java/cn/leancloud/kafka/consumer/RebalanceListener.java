@@ -36,7 +36,7 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
         pausedPartitions = consumer.paused();
         if (!pausedPartitions.isEmpty()) {
             pausedPartitions = new HashSet<>(pausedPartitions);
-            pausedPartitions.removeAll(policy.partialCommit());
+            pausedPartitions.removeAll(policy.syncPartialCommit());
         }
     }
 

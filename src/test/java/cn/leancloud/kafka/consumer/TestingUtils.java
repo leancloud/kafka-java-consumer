@@ -85,8 +85,8 @@ class TestingUtils {
     }
 
     static void addCompleteRecordInPolicy(CommitPolicy<Object, Object> policy, ConsumerRecord<Object, Object> record) {
-        policy.addPendingRecord(record);
-        policy.completeRecord(record);
+        policy.markPendingRecord(record);
+        policy.markCompletedRecord(record);
     }
 
     static List<ConsumerRecord<Object, Object>> addCompleteRecordsInPolicy(CommitPolicy<Object, Object> policy, List<ConsumerRecord<Object, Object>> records) {

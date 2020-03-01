@@ -73,7 +73,10 @@ final class AsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K,
         } else {
             asyncCommit(offsets);
         }
-        // update next recommit time even if async commit failed, we tolerate this situation
+
+        // for our commit policy, no matter syncCommit or asyncCommit we use, we always
+        // commit all assigned offsets, so we can update recommit time here safely. And
+        // we don't mind that if the async commit request failed, we tolerate this situation
         updateNextRecommitTime();
     }
 

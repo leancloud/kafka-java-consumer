@@ -42,7 +42,7 @@ public class RebalanceListenerTest {
         final List<TopicPartition> partitionStillNeedsToPause = toPartitions(IntStream.range(20, 25).boxed().collect(toList()));
 
         when(consumer.paused()).thenReturn(new HashSet<>(pausedPartitions));
-        when(policy.partialCommit()).thenReturn(new HashSet<>(partitionToResumeAfterCommit));
+        when(policy.syncPartialCommit()).thenReturn(new HashSet<>(partitionToResumeAfterCommit));
 
         listener.onPartitionsRevoked(pausedPartitions);
         listener.onPartitionsAssigned(assignedPartitions);
