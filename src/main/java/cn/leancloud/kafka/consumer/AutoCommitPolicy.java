@@ -9,7 +9,8 @@ import java.util.Set;
 
 final class AutoCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
     AutoCommitPolicy(Consumer<K, V> consumer) {
-        super(consumer);
+        // For auto commit policy we don't commit by hand so we don't need retry sync commit facilities
+        super(consumer, Duration.ZERO, 1);
     }
 
     @Override

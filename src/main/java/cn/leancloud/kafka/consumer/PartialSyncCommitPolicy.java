@@ -10,15 +10,18 @@ import java.util.Map;
 import java.util.Set;
 
 final class PartialSyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K, V> {
-    PartialSyncCommitPolicy(Consumer<K, V> consumer, Duration forceWholeCommitInterval) {
-        super(consumer, forceWholeCommitInterval);
+    PartialSyncCommitPolicy(Consumer<K, V> consumer,
+                            Duration syncCommitRetryInterval,
+                            int maxAttemptsForEachSyncCommit,
+                            Duration forceWholeCommitInterval) {
+        super(consumer, syncCommitRetryInterval, maxAttemptsForEachSyncCommit, forceWholeCommitInterval);
     }
 
     @Override
     public Set<TopicPartition> tryCommit(boolean noPendingRecords) {
         final Map<TopicPartition, OffsetAndMetadata> offsets = offsetsForPartialCommit();
         if (!offsets.isEmpty()) {
-            consumer.commitSync(offsets);
+            commitSync(offsets);
         }
 
         if (completedTopicOffsets.isEmpty()) {

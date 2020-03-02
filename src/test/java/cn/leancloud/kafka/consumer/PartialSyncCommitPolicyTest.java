@@ -26,7 +26,7 @@ public class PartialSyncCommitPolicyTest {
     @Before
     public void setUp() {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
-        policy = new PartialSyncCommitPolicy<>(consumer, Duration.ofSeconds(30));
+        policy = new PartialSyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofSeconds(30));
     }
 
     @After
@@ -110,7 +110,7 @@ public class PartialSyncCommitPolicyTest {
 
     @Test
     public void testRecommit() throws Exception{
-        policy = new PartialSyncCommitPolicy<>(consumer, Duration.ofMillis(200));
+        policy = new PartialSyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofMillis(200));
         long nextRecommitNanos = policy.nextRecommitNanos();
         assignPartitions(consumer, toPartitions(range(0, 30).boxed().collect(toList())), 0L);
 

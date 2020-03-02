@@ -19,8 +19,12 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPo
     private int pendingAsyncCommitCounter;
     private boolean forceSync;
 
-    PartialAsyncCommitPolicy(Consumer<K, V> consumer, Duration forceWholeCommitInterval, int maxPendingAsyncCommits) {
-        super(consumer, forceWholeCommitInterval);
+    PartialAsyncCommitPolicy(Consumer<K, V> consumer,
+                             Duration syncCommitRetryInterval,
+                             int maxAttemptsForEachSyncCommit,
+                             Duration forceWholeCommitInterval,
+                             int maxPendingAsyncCommits) {
+        super(consumer, syncCommitRetryInterval, maxAttemptsForEachSyncCommit, forceWholeCommitInterval);
         this.maxPendingAsyncCommits = maxPendingAsyncCommits;
         this.callback = new AsyncCommitCallback();
         this.pendingAsyncCommitOffset = new HashMap<>();
@@ -36,7 +40,7 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPo
         } else {
             final Set<TopicPartition> partitions = getCompletedPartitions(noPendingRecords);
             if (syncCommit) {
-                consumer.commitSync(offsets);
+                commitSync(offsets);
                 pendingAsyncCommitOffset.clear();
                 pendingAsyncCommitCounter = 0;
                 forceSync = false;

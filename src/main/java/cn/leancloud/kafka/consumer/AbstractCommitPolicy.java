@@ -4,7 +4,9 @@ import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.RetriableException;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -15,14 +17,50 @@ import static java.util.function.BinaryOperator.maxBy;
 import static java.util.stream.Collectors.toSet;
 
 abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
-    protected final Consumer<K, V> consumer;
+    static SleepFunction sleepFunction = Thread::sleep;
+
+    interface SleepFunction {
+        void sleep(long timeout) throws InterruptedException;
+    }
+
+    private static class RetryContext {
+        private final long retryInterval;
+        private final int maxAttempts;
+        private int numOfAttempts;
+
+        private RetryContext(long retryInterval, int maxAttempts) {
+            this.retryInterval = retryInterval;
+            this.maxAttempts = maxAttempts;
+            this.numOfAttempts = 0;
+        }
+
+        void onError(RetriableException e) {
+            if (++numOfAttempts >= maxAttempts) {
+                throw e;
+            } else {
+                try {
+                    sleepFunction.sleep(retryInterval);
+                } catch (InterruptedException ex) {
+                    e.addSuppressed(ex);
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
+    }
+
     final Map<TopicPartition, Long> topicOffsetHighWaterMark;
     final Map<TopicPartition, OffsetAndMetadata> completedTopicOffsets;
+    protected final Consumer<K, V> consumer;
+    private final long syncCommitRetryIntervalMs;
+    private final int maxAttemptsForEachSyncCommit;
 
-    AbstractCommitPolicy(Consumer<K, V> consumer) {
+    AbstractCommitPolicy(Consumer<K, V> consumer, Duration syncCommitRetryInterval, int maxAttemptsForEachSyncCommit) {
         this.consumer = consumer;
         this.topicOffsetHighWaterMark = new HashMap<>();
         this.completedTopicOffsets = new HashMap<>();
+        this.syncCommitRetryIntervalMs = syncCommitRetryInterval.toMillis();
+        this.maxAttemptsForEachSyncCommit = maxAttemptsForEachSyncCommit;
     }
 
     @Override
@@ -43,7 +81,7 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
 
     @Override
     public Set<TopicPartition> syncPartialCommit() {
-        consumer.commitSync(completedTopicOffsets);
+        commitSync(completedTopicOffsets);
         final Set<TopicPartition> partitions = checkCompletedPartitions();
         completedTopicOffsets.clear();
         for (TopicPartition p : partitions) {
@@ -85,6 +123,30 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
         return completedTopicOffsets;
     }
 
+    void commitSync() {
+        final RetryContext context = context();
+        do {
+            try {
+                consumer.commitSync();
+                return;
+            } catch (RetriableException e) {
+                context.onError(e);
+            }
+        } while (true);
+    }
+
+    void commitSync(Map<TopicPartition, OffsetAndMetadata> offsets) {
+        final RetryContext context = context();
+        do {
+            try {
+                consumer.commitSync(offsets);
+                return;
+            } catch (RetriableException e) {
+                context.onError(e);
+            }
+        } while (true);
+    }
+
     private Set<TopicPartition> checkCompletedPartitions() {
         return completedTopicOffsets
                 .entrySet()
@@ -101,5 +163,9 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
         }
         // maybe this partition revoked before a msg of this partition was processed
         return true;
+    }
+
+    private RetryContext context() {
+        return new RetryContext(syncCommitRetryIntervalMs, maxAttemptsForEachSyncCommit);
     }
 }

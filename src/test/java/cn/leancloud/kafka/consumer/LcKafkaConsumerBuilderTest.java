@@ -148,6 +148,46 @@ public class LcKafkaConsumerBuilderTest {
     }
 
     @Test
+    public void testNegativeSyncCommitRetryIntervalMs() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .syncCommitRetryIntervalMillis(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("syncCommitRetryIntervalMillis");
+    }
+
+    @Test
+    public void testNullSyncCommitRetryInterval() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .syncCommitRetryInterval(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("syncCommitRetryInterval");
+    }
+
+    @Test
+    public void testNegativeSyncCommitRetryInterval() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .syncCommitRetryInterval(Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("syncCommitRetryInterval: PT-1S (expect positive or zero duration)");
+    }
+
+    @Test
+    public void testNegativeMaxAttemptsForEachSyncCommit() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .maxAttemptsForEachSyncCommit(-1 * ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("maxAttemptsForEachSyncCommit");
+    }
+
+    @Test
+    public void testZeroMaxAttemptsForEachSyncCommit() {
+        assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
+                .maxAttemptsForEachSyncCommit(0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("maxAttemptsForEachSyncCommit");
+    }
+
+    @Test
     public void testNegativeRecommitIntervalMs() {
         assertThatThrownBy(() -> LcKafkaConsumerBuilder.newBuilder(configs, testingHandler, keyDeserializer, valueDeserializer)
                 .recommitIntervalInMillis(-1 * ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE)))
@@ -243,6 +283,8 @@ public class LcKafkaConsumerBuilderTest {
                 .maxPendingAsyncCommits(100)
                 .workerPool(workerPool, false)
                 .recommitInterval(Duration.ofMinutes(20))
+                .syncCommitRetryIntervalMillis(2000)
+                .maxAttemptsForEachSyncCommit(10)
                 .buildSync();
 
         assertThat(consumer).isNotNull();
@@ -259,6 +301,7 @@ public class LcKafkaConsumerBuilderTest {
                 .pollTimeout(Duration.ofMillis(1000))
                 .maxPendingAsyncCommits(100)
                 .recommitInterval(Duration.ofMinutes(20))
+                .syncCommitRetryInterval(Duration.ofSeconds(2))
                 .handleRecordTimeout(Duration.ZERO)
                 .buildSync();
 

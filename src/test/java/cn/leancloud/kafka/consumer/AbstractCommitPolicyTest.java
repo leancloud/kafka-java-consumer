@@ -2,24 +2,29 @@ package cn.leancloud.kafka.consumer;
 
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.RetriableException;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.time.Duration;
+import java.util.*;
 import java.util.stream.IntStream;
 
 import static cn.leancloud.kafka.consumer.TestingUtils.*;
 import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.*;
 
 public class AbstractCommitPolicyTest {
     private static class TestingAbstractCommitPolicy extends AbstractCommitPolicy<Object, Object> {
         TestingAbstractCommitPolicy(Consumer<Object, Object> consumer) {
-            super(consumer);
+            this(consumer, Duration.ZERO, 3);
+        }
+
+        TestingAbstractCommitPolicy(Consumer<Object, Object> consumer, Duration syncCommitRetryInterval, int maxAttemptsForEachSyncCommit) {
+            super(consumer, syncCommitRetryInterval, maxAttemptsForEachSyncCommit);
         }
 
         @Override
@@ -30,11 +35,19 @@ public class AbstractCommitPolicyTest {
 
     private MockConsumer<Object, Object> consumer;
     private TestingAbstractCommitPolicy policy;
+    private long sleptTime;
 
     @Before
     public void setUp() {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
         policy = new TestingAbstractCommitPolicy(consumer);
+        sleptTime = 0L;
+        AbstractCommitPolicy.sleepFunction = sleep -> {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException();
+            }
+            sleptTime += sleep;
+        };
     }
 
     @After
@@ -152,6 +165,58 @@ public class AbstractCommitPolicyTest {
                 .hasSize(3)
                 .extracting(partition(104))
                 .isEqualTo(1006L);
+    }
+
+    @Test
+    public void testRetrySyncCommit() {
+        final Consumer<Object, Object> mockedConsumer = mock(Consumer.class);
+        final RetriableException exception = new RetriableCommitFailedException("sync commit failed");
+        final Duration retryInterval = Duration.ofSeconds(1);
+        final int maxAttempts = 3;
+        policy = new TestingAbstractCommitPolicy(mockedConsumer, retryInterval, maxAttempts);
+
+        doThrow(exception).when(mockedConsumer).commitSync();
+        assertThatThrownBy(() -> policy.commitSync()).isSameAs(exception);
+
+        verify(mockedConsumer, times(maxAttempts)).commitSync();
+        assertThat(sleptTime).isEqualTo(retryInterval.multipliedBy(maxAttempts - 1).toMillis());
+    }
+
+    @Test
+    public void testRetrySyncCommit2() {
+        final Consumer<Object, Object> mockedConsumer = mock(Consumer.class);
+        final RetriableException exception = new RetriableCommitFailedException("sync commit failed");
+        final Duration retryInterval = Duration.ofSeconds(1);
+        final int maxAttempts = 3;
+        final Map<TopicPartition, OffsetAndMetadata> offsets = new HashMap<>();
+        policy = new TestingAbstractCommitPolicy(mockedConsumer, retryInterval, maxAttempts);
+
+        doThrow(exception).when(mockedConsumer).commitSync(offsets);
+        assertThatThrownBy(() -> policy.commitSync(offsets)).isSameAs(exception);
+
+        verify(mockedConsumer, times(maxAttempts)).commitSync(offsets);
+        assertThat(sleptTime).isEqualTo(retryInterval.multipliedBy(maxAttempts - 1).toMillis());
+    }
+
+    @Test
+    public void testInterruptOnRetry() {
+        final Consumer<Object, Object> mockedConsumer = mock(Consumer.class);
+        final RetriableException exception = new RetriableCommitFailedException("sync commit failed");
+        final Duration retryInterval = Duration.ofSeconds(1);
+        final int maxAttempts = 3;
+        policy = new TestingAbstractCommitPolicy(mockedConsumer, retryInterval, maxAttempts);
+
+        Thread.currentThread().interrupt();
+        doThrow(exception).when(mockedConsumer).commitSync();
+        assertThatThrownBy(() -> policy.commitSync()).isSameAs(exception).satisfies(t -> {
+            final Throwable[] suppressed = t.getSuppressed();
+            assertThat(suppressed.length).isEqualTo(1);
+            assertThat(suppressed[0]).isInstanceOf(InterruptedException.class);
+        });
+
+        verify(mockedConsumer, times(1)).commitSync();
+        assertThat(sleptTime).isEqualTo(0);
+        assertThat(Thread.interrupted());
     }
 
     private TopicPartition partition(int partition) {

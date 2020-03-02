@@ -28,7 +28,7 @@ public class PartialAsyncCommitPolicyTest {
     @Before
     public void setUp() {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
-        policy = new PartialAsyncCommitPolicy<>(consumer, Duration.ofSeconds(30), defaultMaxPendingAsyncCommits);
+        policy = new PartialAsyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofSeconds(30), defaultMaxPendingAsyncCommits);
         partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         assignPartitions(consumer, partitions, 0);
         pendingRecords = generateConsumedRecords(consumer, partitions, 1);
@@ -66,7 +66,7 @@ public class PartialAsyncCommitPolicyTest {
 
     @Test
     public void testRecommit() throws Exception {
-        policy = new PartialAsyncCommitPolicy<>(consumer, Duration.ofMillis(200), defaultMaxPendingAsyncCommits);
+        policy = new PartialAsyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofMillis(200), defaultMaxPendingAsyncCommits);
         long nextRecommitNanos = policy.nextRecommitNanos();
         assignPartitions(consumer, toPartitions(range(0, 30).boxed().collect(toList())), 0L);
 
@@ -136,7 +136,7 @@ public class PartialAsyncCommitPolicyTest {
         doNothing().when(mockConsumer).commitAsync(any());
 
         final int asyncCommitTimes = pendingRecords.size() - 1;
-        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ofHours(30), 2 * asyncCommitTimes);
+        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofHours(30), 2 * asyncCommitTimes);
 
         final Set<TopicPartition> partitionsToResume = new HashSet<>();
         for (ConsumerRecord<Object, Object> record : pendingRecords.subList(0, asyncCommitTimes)) {
@@ -184,7 +184,7 @@ public class PartialAsyncCommitPolicyTest {
         doNothing().when(mockConsumer).commitAsync(any());
 
         final int asyncCommitTimes = pendingRecords.size() - 1;
-        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ofSeconds(30), asyncCommitTimes);
+        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofSeconds(30), asyncCommitTimes);
 
         final Set<TopicPartition> partitionsToResume = new HashSet<>();
         for (ConsumerRecord<Object, Object> record : pendingRecords.subList(0, asyncCommitTimes)) {
@@ -217,7 +217,7 @@ public class PartialAsyncCommitPolicyTest {
         final Consumer<Object, Object> mockConsumer = Mockito.mock(Consumer.class);
         doNothing().when(mockConsumer).commitAsync(any());
 
-        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ofSeconds(30), 10);
+        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofSeconds(30), 10);
 
         final Set<TopicPartition> partitionsToResume = new HashSet<>();
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
@@ -248,7 +248,7 @@ public class PartialAsyncCommitPolicyTest {
             return null;
         }).when(mockConsumer).commitAsync(any(), any());
 
-        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ofSeconds(30), 10);
+        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofSeconds(30), 10);
 
         // a failed async commit on the first time
         final ConsumerRecord<Object, Object> triggerFailedRecord = pendingRecords.get(0);

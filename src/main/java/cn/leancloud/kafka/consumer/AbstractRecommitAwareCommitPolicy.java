@@ -12,8 +12,11 @@ abstract class AbstractRecommitAwareCommitPolicy<K, V> extends AbstractCommitPol
     private final Duration recommitInterval;
     private long nextRecommitNanos;
 
-    AbstractRecommitAwareCommitPolicy(Consumer<K, V> consumer, Duration recommitInterval) {
-        super(consumer);
+    AbstractRecommitAwareCommitPolicy(Consumer<K, V> consumer,
+                                      Duration syncCommitRetryInterval,
+                                      int maxAttemptsForEachSyncCommit,
+                                      Duration recommitInterval) {
+        super(consumer, syncCommitRetryInterval, maxAttemptsForEachSyncCommit);
         this.recommitInterval = recommitInterval;
         updateNextRecommitTime(System.nanoTime());
     }
