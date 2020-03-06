@@ -56,6 +56,16 @@ class TestingUtils {
         return records;
     }
 
+    static Map<TopicPartition, OffsetAndMetadata> buildCommitOffsets(List<ConsumerRecord<Object, Object>> records) {
+        final Map<TopicPartition, OffsetAndMetadata> completeOffsets = new HashMap<>();
+        for (ConsumerRecord<Object, Object> record : records) {
+            completeOffsets.merge(new TopicPartition(testingTopic, record.partition()),
+                    new OffsetAndMetadata(record.offset() + 1),
+                    maxBy(comparing(OffsetAndMetadata::offset)));
+        }
+        return completeOffsets;
+    }
+
     static <K, V> void fireConsumerRecords(MockConsumer<K, V> consumer, Collection<ConsumerRecord<K, V>> records) {
         for (ConsumerRecord<K, V> record : records) {
             consumer.addRecord(record);
@@ -74,19 +84,15 @@ class TestingUtils {
         return pendingRecords;
     }
 
-    static Map<TopicPartition, OffsetAndMetadata> buildCommitOffsets(List<ConsumerRecord<Object, Object>> records) {
-        final Map<TopicPartition, OffsetAndMetadata> completeOffsets = new HashMap<>();
+    static List<ConsumerRecord<Object, Object>> addPendingRecordsInPolicy(CommitPolicy<Object, Object> policy, List<ConsumerRecord<Object, Object>> records) {
         for (ConsumerRecord<Object, Object> record : records) {
-            completeOffsets.merge(new TopicPartition(testingTopic, record.partition()),
-                    new OffsetAndMetadata(record.offset() + 1),
-                    maxBy(comparing(OffsetAndMetadata::offset)));
+            addPendingRecordInPolicy(policy, record);
         }
-        return completeOffsets;
+        return records;
     }
 
-    static void addCompleteRecordInPolicy(CommitPolicy<Object, Object> policy, ConsumerRecord<Object, Object> record) {
+    static void addPendingRecordInPolicy(CommitPolicy<Object, Object> policy, ConsumerRecord<Object, Object> record) {
         policy.markPendingRecord(record);
-        policy.markCompletedRecord(record);
     }
 
     static List<ConsumerRecord<Object, Object>> addCompleteRecordsInPolicy(CommitPolicy<Object, Object> policy, List<ConsumerRecord<Object, Object>> records) {
@@ -94,5 +100,10 @@ class TestingUtils {
             addCompleteRecordInPolicy(policy, record);
         }
         return records;
+    }
+
+    static void addCompleteRecordInPolicy(CommitPolicy<Object, Object> policy, ConsumerRecord<Object, Object> record) {
+        policy.markPendingRecord(record);
+        policy.markCompletedRecord(record);
     }
 }

@@ -21,6 +21,7 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
     private final Consumer<K, V> consumer;
     private final Set<TopicPartition> knownPartitions;
     private final ConsumerSeekDestination forceSeekTo;
+    private Set<TopicPartition> lastRevokedPartitions;
     private Set<TopicPartition> pausedPartitions;
 
     RebalanceListener(Consumer<K, V> consumer, CommitPolicy<K, V> policy, ConsumerSeekDestination forceSeekTo) {
@@ -29,47 +30,68 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
         this.pausedPartitions = Collections.emptySet();
         this.knownPartitions = new HashSet<>();
         this.forceSeekTo = forceSeekTo;
+        this.lastRevokedPartitions = new HashSet<>();
     }
 
     @Override
     public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+        lastRevokedPartitions = new HashSet<>(partitions);
         pausedPartitions = consumer.paused();
         if (!pausedPartitions.isEmpty()) {
             pausedPartitions = new HashSet<>(pausedPartitions);
-            pausedPartitions.removeAll(policy.syncPartialCommit());
+            pausedPartitions.removeAll(policy.partialCommitSync());
         }
     }
 
     @Override
     public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
         if (forceSeekTo != NONE) {
-            final Set<TopicPartition> newPartitions = new HashSet<>();
-            for (TopicPartition p : partitions) {
-                if (!knownPartitions.contains(p)) {
-                    newPartitions.add(p);
-                    logger.info("Assigned new partition: {}, force seeking it's offset to {}", p, forceSeekTo);
-                }
-            }
-
-            if (!newPartitions.isEmpty()) {
-                forceSeekTo.seek(consumer, newPartitions);
-                knownPartitions.addAll(newPartitions);
-            }
+            seekOnAssignedPartitions(partitions);
         }
 
         if (!pausedPartitions.isEmpty()) {
-            final Set<TopicPartition> partitionToPause = partitions
-                    .stream()
-                    .filter(p -> pausedPartitions.contains(p))
-                    .collect(toSet());
-            if (partitionToPause.isEmpty()) {
-                logger.info("Previous paused partitions: {} were all revoked", pausedPartitions);
-            } else {
-                logger.info("Pause previous paused partitions: {}", partitionToPause);
-                consumer.pause(partitionToPause);
-            }
-
-            pausedPartitions = Collections.emptySet();
+            pausePreviousPausedPartitions(partitions);
         }
+
+        // We can't use removeAll because of the bad performance of removeAll(#Collection) on HashSet
+        for (TopicPartition p : partitions) {
+            lastRevokedPartitions.remove(p);
+        }
+
+        // revoke those partitions which was revoked and not reassigned
+        if (!lastRevokedPartitions.isEmpty()) {
+            policy.revokePartitions(lastRevokedPartitions);
+        }
+        lastRevokedPartitions.clear();
+    }
+
+    private void seekOnAssignedPartitions(Collection<TopicPartition> partitions) {
+        final Set<TopicPartition> newPartitions = new HashSet<>();
+        for (TopicPartition p : partitions) {
+            if (!knownPartitions.contains(p)) {
+                newPartitions.add(p);
+                logger.info("Assigned new partition: {}, force seeking it's offset to {}", p, forceSeekTo);
+            }
+        }
+
+        if (!newPartitions.isEmpty()) {
+            forceSeekTo.seek(consumer, newPartitions);
+            knownPartitions.addAll(newPartitions);
+        }
+    }
+
+    private void pausePreviousPausedPartitions(Collection<TopicPartition> partitions) {
+        final Set<TopicPartition> partitionToPause = partitions
+                .stream()
+                .filter(p -> pausedPartitions.contains(p))
+                .collect(toSet());
+        if (partitionToPause.isEmpty()) {
+            logger.info("Previous paused partitions: {} were all revoked", pausedPartitions);
+        } else {
+            logger.info("Pause previous paused partitions: {}", partitionToPause);
+            consumer.pause(partitionToPause);
+        }
+
+        pausedPartitions = Collections.emptySet();
     }
 }

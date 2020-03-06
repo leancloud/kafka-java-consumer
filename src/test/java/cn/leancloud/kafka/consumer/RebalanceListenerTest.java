@@ -10,6 +10,7 @@ import org.mockito.ArgumentCaptor;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.IntStream;
 
 import static cn.leancloud.kafka.consumer.TestingUtils.toPartitions;
@@ -42,12 +43,30 @@ public class RebalanceListenerTest {
         final List<TopicPartition> partitionStillNeedsToPause = toPartitions(IntStream.range(20, 25).boxed().collect(toList()));
 
         when(consumer.paused()).thenReturn(new HashSet<>(pausedPartitions));
-        when(policy.syncPartialCommit()).thenReturn(new HashSet<>(partitionToResumeAfterCommit));
+        when(policy.partialCommitSync()).thenReturn(new HashSet<>(partitionToResumeAfterCommit));
 
         listener.onPartitionsRevoked(pausedPartitions);
         listener.onPartitionsAssigned(assignedPartitions);
 
         verify(consumer, times(1)).pause(new HashSet<>(partitionStillNeedsToPause));
+    }
+
+    @Test
+    public void testRevokePartitions() {
+        listener = new RebalanceListener<>(consumer, policy, ConsumerSeekDestination.NONE);
+        final List<TopicPartition> allPartitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
+        final List<TopicPartition> reAssignedPartitions = toPartitions(IntStream.range(0, 20).boxed().collect(toList()));
+        final Set<TopicPartition> revokedPartitions = new HashSet<>(toPartitions(IntStream.range(20, 30).boxed().collect(toList())));
+
+        doAnswer(invocation -> {
+            assertThat(revokedPartitions).containsExactlyInAnyOrderElementsOf(invocation.getArgument(0));
+            return null;
+        }).when(policy).revokePartitions(anySet());
+
+        listener.onPartitionsRevoked(allPartitions);
+        listener.onPartitionsAssigned(reAssignedPartitions);
+
+        verify(policy, times(1)).revokePartitions(anyCollection());
     }
 
     @Test

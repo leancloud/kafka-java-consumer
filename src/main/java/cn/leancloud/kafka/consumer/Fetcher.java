@@ -142,7 +142,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
                 unsubscribedStatus = UnsubscribedStatus.ERROR;
                 markClosed();
                 break;
-            } catch (Exception ex) {
+            } catch (Throwable ex) {
                 if (ex instanceof InterruptedException) {
                     Thread.currentThread().interrupt();
                 }
@@ -259,7 +259,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         long shutdownTimeout = 0L;
         try {
             shutdownTimeout = waitPendingFuturesDone();
-            policy.syncPartialCommit();
+            policy.partialCommitSync();
             pendingFutures.clear();
         } catch (Exception ex) {
             logger.error("Graceful shutdown got unexpected exception", ex);

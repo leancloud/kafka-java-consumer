@@ -16,8 +16,8 @@ class TwoConsumerTest implements IntegrationTest{
 
     @Override
     public void runTest(TestContext context, TestStatistics statistics) throws Exception {
-        final LcKafkaConsumer<Integer, String> consumer = context.factory().buildConsumer("consumer-1", statistics);
-        final LcKafkaConsumer<Integer, String> consumer2 = context.factory().buildConsumer("consumer-2", statistics);
+        final LcKafkaConsumer<Integer, String> consumer = context.factory().buildConsumer(name() + "-consumer-1", statistics);
+        final LcKafkaConsumer<Integer, String> consumer2 = context.factory().buildConsumer(name() + "-consumer-2", statistics);
         consumer.subscribe(Collections.singletonList(context.topic()));
         consumer2.subscribe(Collections.singletonList(context.topic()));
         final int totalSent = context.producer().startFixedDurationTest(context.topic(), Duration.ofSeconds(10)).get();

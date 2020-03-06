@@ -18,11 +18,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class AutoCommitPolicyTest {
     private MockConsumer<Object, Object> consumer;
     private AutoCommitPolicy<Object, Object> policy;
+    private List<TopicPartition> partitions;
+    private List<ConsumerRecord<Object, Object>> pendingRecords;
 
     @Before
     public void setUp() {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
         policy = new AutoCommitPolicy<>(consumer);
+
+        partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
+        assignPartitions(consumer, partitions, 0L);
+        pendingRecords = generateConsumedRecords(consumer, partitions, 2);
     }
 
     @After
@@ -31,26 +37,32 @@ public class AutoCommitPolicyTest {
     }
 
     @Test
-    public void testNoCompleteRecords() {
-        final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
-        preparePendingRecords(partitions, 1);
+    public void testOnlyConsumedRecords() {
         assertThat(policy.tryCommit(true)).isEmpty();
         for (TopicPartition partition : partitions) {
             assertThat(consumer.committed(partition)).isNull();
         }
+        assertThat(policy.noCompletedOffsets()).isTrue();
+        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
     }
 
     @Test
-    public void testPartialComplete() {
-        final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
-        final List<ConsumerRecord<Object, Object>> pendingRecords = preparePendingRecords(partitions, 2);
-        // two records for each partitions
+    public void testOnlyPendingRecords() {
+        addPendingRecordsInPolicy(policy, pendingRecords);
+        assertThat(policy.tryCommit(false)).isEmpty();
+        for (TopicPartition partition : partitions) {
+            assertThat(consumer.committed(partition)).isNull();
+        }
+        assertThat(policy.noCompletedOffsets()).isFalse();
+        assertThat(policy.topicOffsetHighWaterMark()).isNotEmpty();
+    }
+
+    @Test
+    public void testHasCompleteRecordsAndPendingRecords() {
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
             policy.markPendingRecord(record);
-        }
 
-        // complete the first half of the partitions
-        for (ConsumerRecord<Object, Object> record : pendingRecords) {
+            // complete the first half of the partitions
             if (record.partition() < partitions.size() / 2 && record.offset() < 3) {
                 policy.markCompletedRecord(record);
             }
@@ -69,15 +81,19 @@ public class AutoCommitPolicyTest {
             }
         }
 
-        assertThat(policy.completedTopicOffsets()).isEmpty();
+        assertThat(policy.completedTopicOffsetsToCommit()).isEmpty();
     }
 
-    private List<ConsumerRecord<Object, Object>> preparePendingRecords(List<TopicPartition> partitions, int size) {
-        final List<ConsumerRecord<Object, Object>> pendingRecords = prepareConsumerRecords(partitions, 1, size);
-        assignPartitions(consumer, partitions, 0L);
-        fireConsumerRecords(consumer, pendingRecords);
-        consumer.poll(0);
-        return pendingRecords;
-    }
+    @Test
+    public void testFullCommit() {
+        addCompleteRecordsInPolicy(policy, pendingRecords);
 
+
+        assertThat(policy.tryCommit(true))
+                .hasSize(partitions.size())
+                .containsExactlyInAnyOrderElementsOf(partitions);
+
+        assertThat(policy.noCompletedOffsets()).isTrue();
+        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
+    }
 }

@@ -4,8 +4,9 @@ import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.common.TopicPartition;
 
 import java.time.Duration;
-import java.util.Collections;
 import java.util.Set;
+
+import static java.util.Collections.emptySet;
 
 final class AutoCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
     AutoCommitPolicy(Consumer<K, V> consumer) {
@@ -15,12 +16,19 @@ final class AutoCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
 
     @Override
     public Set<TopicPartition> tryCommit(boolean noPendingRecords) {
-        if (completedTopicOffsets.isEmpty()) {
-            return Collections.emptySet();
+        if (noTopicOffsetsToCommit()) {
+            return emptySet();
         }
 
-        final Set<TopicPartition> partitions = getCompletedPartitions(noPendingRecords);
-        clearCachedCompletedPartitionsRecords(partitions, noPendingRecords);
+        final Set<TopicPartition> partitions;
+        if (noPendingRecords) {
+            partitions = partitionsForAllRecordsStates();
+            clearAllProcessingRecordStates();
+        } else {
+            partitions = partitionsToSafeResume();
+            clearProcessingRecordStatesFor(partitions);
+        }
+
         return partitions;
     }
 }

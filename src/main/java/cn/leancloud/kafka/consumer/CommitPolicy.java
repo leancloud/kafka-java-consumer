@@ -3,6 +3,7 @@ package cn.leancloud.kafka.consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 
+import java.util.Collection;
 import java.util.Set;
 
 interface CommitPolicy<K, V> {
@@ -43,5 +44,12 @@ interface CommitPolicy<K, V> {
      *
      * @return those {@link TopicPartition}s which have no pending {@code ConsumerRecord}s
      */
-    Set<TopicPartition> syncPartialCommit();
+    Set<TopicPartition> partialCommitSync();
+
+    /**
+     * Revoke internal states for some partitions.
+     *
+     * @param partitions which was revoked from consumer
+     */
+    void revokePartitions(Collection<TopicPartition> partitions);
 }

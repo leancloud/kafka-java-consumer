@@ -13,7 +13,6 @@ import java.util.stream.IntStream;
 
 import static cn.leancloud.kafka.consumer.TestingUtils.*;
 import static java.util.stream.Collectors.toList;
-import static java.util.stream.IntStream.range;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -31,7 +30,7 @@ public class PartialAsyncCommitPolicyTest {
         policy = new PartialAsyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofSeconds(30), defaultMaxPendingAsyncCommits);
         partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         assignPartitions(consumer, partitions, 0);
-        pendingRecords = generateConsumedRecords(consumer, partitions, 1);
+        pendingRecords = generateConsumedRecords(consumer, partitions, 2);
     }
 
     @After
@@ -40,72 +39,31 @@ public class PartialAsyncCommitPolicyTest {
     }
 
     @Test
-    public void testNoNewCompleteRecords() {
-        final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 20).boxed().collect(toList()));
-        assignPartitions(consumer, partitions, 0L);
-
-        final List<ConsumerRecord<Object, Object>> prevRecords = generateConsumedRecords(consumer, toPartitions(range(0, 10).boxed().collect(toList())), 10);
-        final Map<TopicPartition, OffsetAndMetadata> previousCommitOffsets = buildCommitOffsets(prevRecords);
-        addCompleteRecordsInPolicy(policy, prevRecords);
-        assertThat(policy.tryCommit(true))
-                .containsExactlyInAnyOrderElementsOf(toPartitions(range(0, 10).boxed().collect(toList())));
-
+    public void testForceSyncFullCommit() {
+        policy.setForceSync(true);
+        policy.setPendingAsyncCommitCount(100);
         final long nextRecommitNanos = policy.nextRecommitNanos();
-        // only generate consumed records, these records are not completed in policy
-        generateConsumedRecords(consumer, toPartitions(range(10, 20).boxed().collect(toList())), 10);
-        assertThat(policy.tryCommit(true)).isEmpty();
+        addCompleteRecordsInPolicy(policy, pendingRecords);
+        assertThat(policy.tryCommit(true)).containsExactlyInAnyOrderElementsOf(partitions);
         for (TopicPartition partition : partitions) {
-            if (previousCommitOffsets.containsKey(partition)) {
-                assertThat(consumer.committed(partition)).isEqualTo(previousCommitOffsets.get(partition));
-            } else {
-                assertThat(consumer.committed(partition)).isNull();
-            }
+            assertThat(consumer.committed(partition)).isEqualTo(new OffsetAndMetadata(3));
         }
-        assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
-    }
-
-    @Test
-    public void testRecommit() throws Exception {
-        policy = new PartialAsyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofMillis(200), defaultMaxPendingAsyncCommits);
-        long nextRecommitNanos = policy.nextRecommitNanos();
-        assignPartitions(consumer, toPartitions(range(0, 30).boxed().collect(toList())), 0L);
-
-        final List<ConsumerRecord<Object, Object>> prevRecords = generateConsumedRecords(consumer, toPartitions(range(0, 10).boxed().collect(toList())), 10);
-        final Map<TopicPartition, OffsetAndMetadata> previousCommitOffsets = buildCommitOffsets(prevRecords);
-        addCompleteRecordsInPolicy(policy, prevRecords);
-        assertThat(policy.tryCommit(true))
-                .containsExactlyInAnyOrderElementsOf(toPartitions(range(0, 10).boxed().collect(toList())));
-        assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
-
-        Thread.sleep(200);
-        nextRecommitNanos = policy.nextRecommitNanos();
-        final List<ConsumerRecord<Object, Object>> newRecords = generateConsumedRecords(consumer, toPartitions(range(10, 20).boxed().collect(toList())), 10);
-        final Map<TopicPartition, OffsetAndMetadata> newCommitOffsets = buildCommitOffsets(newRecords);
-        newCommitOffsets.putAll(previousCommitOffsets);
-
-        addCompleteRecordsInPolicy(policy, newRecords);
-
-        assertThat(policy.tryCommit(false))
-                .containsExactlyInAnyOrderElementsOf(toPartitions(range(10, 20).boxed().collect(toList())));
-        for (Map.Entry<TopicPartition, OffsetAndMetadata> entry : newCommitOffsets.entrySet()) {
-            assertThat(consumer.committed(entry.getKey())).isEqualTo(entry.getValue());
-        }
+        assertThat(policy.noCompletedOffsets()).isTrue();
+        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
         assertThat(policy.nextRecommitNanos()).isGreaterThan(nextRecommitNanos);
+        assertThat(policy.forceSync()).isFalse();
+        assertThat(policy.pendingAsyncCommitCount()).isZero();
     }
 
     @Test
-    public void testPartialAsyncCommit() {
-        final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
+    public void testForceSyncPartialCommit() {
+        policy.setForceSync(true);
+        policy.setPendingAsyncCommitCount(100);
         final long nextRecommitNanos = policy.nextRecommitNanos();
-        assignPartitions(consumer, partitions, 0);
-        final List<ConsumerRecord<Object, Object>> pendingRecords = generateConsumedRecords(consumer, partitions, 2);
-        // two records for each partitions
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
             policy.markPendingRecord(record);
-        }
 
-        // complete the first half of the partitions
-        for (ConsumerRecord<Object, Object> record : pendingRecords) {
+            // complete the first half of the partitions
             if (record.partition() < partitions.size() / 2 && record.offset() < 3) {
                 policy.markCompletedRecord(record);
             }
@@ -126,27 +84,161 @@ public class PartialAsyncCommitPolicyTest {
             }
         }
 
-        assertThat(policy.completedTopicOffsets()).isEmpty();
+        assertThat(policy.completedTopicOffsetsToCommit()).isEmpty();
+        assertThat(policy.noCompletedOffsets()).isFalse();
+        assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
+        assertThat(policy.forceSync()).isFalse();
+        assertThat(policy.pendingAsyncCommitCount()).isZero();
+    }
+
+    @Test
+    public void testOnlyConsumedRecords() {
+        final long nextRecommitNanos = policy.nextRecommitNanos();
+        assertThat(policy.tryCommit(true)).isEmpty();
+        for (TopicPartition partition : partitions) {
+            assertThat(consumer.committed(partition)).isNull();
+        }
+        assertThat(policy.noCompletedOffsets()).isTrue();
+        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
         assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
     }
 
     @Test
-    public void testRecallTryCommit() {
+    public void testOnlyPendingRecords() {
+        final long nextRecommitNanos = policy.nextRecommitNanos();
+        addPendingRecordsInPolicy(policy, pendingRecords);
+        assertThat(policy.tryCommit(false)).isEmpty();
+        for (TopicPartition partition : partitions) {
+            assertThat(consumer.committed(partition)).isNull();
+        }
+        assertThat(policy.noTopicOffsetsToCommit()).isTrue();
+        assertThat(policy.topicOffsetHighWaterMark()).hasSize(partitions.size());
+        assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
+    }
+
+    @Test
+    public void testSyncFullCommit() {
+        final long nextRecommitNanos = policy.nextRecommitNanos();
+        policy.setPendingAsyncCommitCount(100);
+        addCompleteRecordsInPolicy(policy, pendingRecords);
+        policy.setPendingAsyncCommitCount(defaultMaxPendingAsyncCommits);
+        assertThat(policy.tryCommit(true)).containsExactlyInAnyOrderElementsOf(partitions);
+        for (TopicPartition partition : partitions) {
+            assertThat(consumer.committed(partition)).isEqualTo(new OffsetAndMetadata(3));
+        }
+        assertThat(policy.noCompletedOffsets()).isTrue();
+        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
+        assertThat(policy.nextRecommitNanos()).isGreaterThan(nextRecommitNanos);
+        assertThat(policy.pendingAsyncCommitCount()).isZero();
+    }
+
+    @Test
+    public void testAsyncFullCommit() {
+        final long nextRecommitNanos = policy.nextRecommitNanos();
+        addCompleteRecordsInPolicy(policy, pendingRecords);
+        policy.setPendingAsyncCommitCount(0);
+        assertThat(policy.tryCommit(true)).containsExactlyInAnyOrderElementsOf(partitions);
+        for (TopicPartition partition : partitions) {
+            assertThat(consumer.committed(partition)).isEqualTo(new OffsetAndMetadata(3));
+        }
+        // async commit callback called immediately when we call consumer.commitAsync()
+        // so processing record states was cleared
+        assertThat(policy.noCompletedOffsets()).isTrue();
+        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
+        assertThat(policy.nextRecommitNanos()).isGreaterThan(nextRecommitNanos);
+        // pending async commit should be 1 but because consumer.commitAsync() for MockConsumer
+        // is a synchronous function so when policy.tryCommit() finish, the callback for consumer.commitAsync()
+        // was finished too which clears the pendingAsyncCommitCount
+        assertThat(policy.pendingAsyncCommitCount()).isEqualTo(0);
+    }
+
+    @Test
+    public void testPartialSyncCommit() {
+        final long nextRecommitNanos = policy.nextRecommitNanos();
+        policy.setPendingAsyncCommitCount(defaultMaxPendingAsyncCommits);
+
+        for (ConsumerRecord<Object, Object> record : pendingRecords) {
+            policy.markPendingRecord(record);
+            // complete the first half of the partitions
+            if (record.partition() < partitions.size() / 2 && record.offset() < 3) {
+                policy.markCompletedRecord(record);
+            }
+        }
+
+        assertThat(policy.tryCommit(false))
+                .hasSize(partitions.size() / 2)
+                .containsExactlyInAnyOrderElementsOf(partitions.subList(0, partitions.size() / 2));
+        for (TopicPartition partition : partitions) {
+            // first half of the partitions is committed and topic offset mark is cleaned
+            // second half of the partitions is not committed and topic offset mark is still there
+            if (partition.partition() < partitions.size() / 2) {
+                assertThat(consumer.committed(partition)).isEqualTo(new OffsetAndMetadata(3));
+                assertThat(policy.topicOffsetHighWaterMark().get(partition)).isNull();
+            } else {
+                assertThat(consumer.committed(partition)).isNull();
+                assertThat(policy.topicOffsetHighWaterMark().get(partition)).isEqualTo(3);
+            }
+        }
+
+        assertThat(policy.noTopicOffsetsToCommit()).isTrue();
+        assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
+        assertThat(policy.pendingAsyncCommitCount()).isZero();
+    }
+
+    @Test
+    public void testPartialAsyncCommit() {
+        final long nextRecommitNanos = policy.nextRecommitNanos();
+
+        for (ConsumerRecord<Object, Object> record : pendingRecords) {
+            policy.markPendingRecord(record);
+            // complete the first half of the partitions
+            if (record.partition() < partitions.size() / 2 && record.offset() < 3) {
+                policy.markCompletedRecord(record);
+            }
+        }
+
+        assertThat(policy.tryCommit(false))
+                .hasSize(partitions.size() / 2)
+                .containsExactlyInAnyOrderElementsOf(partitions.subList(0, partitions.size() / 2));
+        Map<TopicPartition, OffsetAndMetadata> pendingOffsets = policy.pendingAsyncCommitOffset();
+        for (TopicPartition partition : partitions) {
+            // first half of the partitions is committed and topic offset mark is cleaned
+            // second half of the partitions is not committed and topic offset mark is still there
+            if (partition.partition() < partitions.size() / 2) {
+                assertThat(consumer.committed(partition)).isEqualTo(new OffsetAndMetadata(3));
+                assertThat(policy.topicOffsetHighWaterMark().get(partition)).isNull();
+                assertThat(pendingOffsets).containsEntry(partition, new OffsetAndMetadata(3));
+            } else {
+                assertThat(consumer.committed(partition)).isNull();
+                assertThat(policy.topicOffsetHighWaterMark().get(partition)).isEqualTo(3);
+                assertThat(pendingOffsets).doesNotContainKey(partition);
+            }
+        }
+
+        assertThat(policy.noCompletedOffsets()).isFalse();
+        assertThat(policy.noTopicOffsetsToCommit()).isTrue();
+        assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
+        // pending async commit should be 1 but because consumer.commitAsync() for MockConsumer
+        // is a synchronous function so when policy.tryCommit() finish, the callback for consumer.commitAsync()
+        // was finished too which clears the pendingAsyncCommitCount
+        assertThat(policy.pendingAsyncCommitCount()).isEqualTo(0);
+    }
+
+    @Test
+    public void testMultiPartialAsyncCommit() {
         final Consumer<Object, Object> mockConsumer = mock(Consumer.class);
         doNothing().when(mockConsumer).commitAsync(any());
 
         final int asyncCommitTimes = pendingRecords.size() - 1;
         policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofHours(30), 2 * asyncCommitTimes);
 
-        final Set<TopicPartition> partitionsToResume = new HashSet<>();
         for (ConsumerRecord<Object, Object> record : pendingRecords.subList(0, asyncCommitTimes)) {
             final TopicPartition partition = new TopicPartition(record.topic(), record.partition());
-            partitionsToResume.add(partition);
             addCompleteRecordInPolicy(policy, record);
-            assertThat(policy.tryCommit(true))
-                    .hasSize(partitionsToResume.size())
-                    .isEqualTo(partitionsToResume);
-            assertThat(policy.tryCommit(true))
+            assertThat(policy.tryCommit(false))
+                    .hasSize(1)
+                    .containsExactly(partition);
+            assertThat(policy.tryCommit(false))
                     .hasSize(0);
             assertThat(policy.forceSync()).isFalse();
 
@@ -154,32 +246,43 @@ public class PartialAsyncCommitPolicyTest {
             offsets.put(partition, new OffsetAndMetadata(record.offset() + 1));
             verify(mockConsumer, times(1)).commitAsync(eq(offsets), any());
         }
-        
+
+        assertThat(policy.pendingAsyncCommitCount()).isEqualTo(asyncCommitTimes);
         verify(mockConsumer, times(asyncCommitTimes)).commitAsync(any(), any());
         verify(mockConsumer, never()).commitSync();
     }
 
     @Test
-    public void testPartialAsyncCommitWithNoPendingFuturesLeft() {
-        final List<TopicPartition> partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
-        assignPartitions(consumer, partitions, 0);
-        // two records for each partitions
-        final List<ConsumerRecord<Object, Object>> pendingRecords = generateConsumedRecords(consumer, partitions, 2);
-        addCompleteRecordsInPolicy(policy, pendingRecords);
+    public void testPartialSyncThenPartialAsyncCommit() {
+        final Consumer<Object, Object> mockConsumer = mock(Consumer.class);
+        doNothing().when(mockConsumer).commitAsync(any());
 
-        assertThat(policy.tryCommit(true))
-                .hasSize(partitions.size())
-                .containsExactlyInAnyOrderElementsOf(partitions);
-        for (TopicPartition partition : partitions) {
-            assertThat(consumer.committed(partition)).isEqualTo(new OffsetAndMetadata(3));
+        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofHours(30), defaultMaxPendingAsyncCommits);
+
+        for (ConsumerRecord<Object, Object> record : pendingRecords.subList(0, defaultMaxPendingAsyncCommits)) {
+            final TopicPartition partition = new TopicPartition(record.topic(), record.partition());
+            addCompleteRecordInPolicy(policy, record);
+            policy.setPendingAsyncCommitCount(defaultMaxPendingAsyncCommits);
+            assertThat(policy.tryCommit(false))
+                    .hasSize(1)
+                    .containsExactly(partition);
+            assertThat(policy.tryCommit(false))
+                    .hasSize(0);
+            assertThat(policy.forceSync()).isFalse();
+
+            final Map<TopicPartition, OffsetAndMetadata> offsets = new HashMap<>();
+            offsets.put(partition, new OffsetAndMetadata(record.offset() + 1));
+            verify(mockConsumer, times(1)).commitSync(eq(offsets));
+            assertThat(policy.pendingAsyncCommitCount()).isZero();
         }
 
-        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
-        assertThat(policy.completedTopicOffsets()).isEmpty();
+        verify(mockConsumer, times(defaultMaxPendingAsyncCommits)).commitSync(any());
+        verify(mockConsumer, never()).commitAsync(any());
+        verify(mockConsumer, never()).commitAsync(any(), any());
     }
 
     @Test
-    public void testForceCommitAfterTooManyPendingAsyncCommits() {
+    public void testSyncCommitAfterTooManyPendingAsyncCommits() {
         final Consumer<Object, Object> mockConsumer = mock(Consumer.class);
         doNothing().when(mockConsumer).commitAsync(any());
 
@@ -190,9 +293,9 @@ public class PartialAsyncCommitPolicyTest {
         for (ConsumerRecord<Object, Object> record : pendingRecords.subList(0, asyncCommitTimes)) {
             partitionsToResume.add(new TopicPartition(record.topic(), record.partition()));
             addCompleteRecordInPolicy(policy, record);
-            assertThat(policy.tryCommit(true))
-                    .hasSize(partitionsToResume.size())
-                    .isEqualTo(partitionsToResume);
+            assertThat(policy.tryCommit(false))
+                    .hasSize(1)
+                    .containsExactly(new TopicPartition(record.topic(), record.partition()));
             assertThat(policy.forceSync()).isFalse();
         }
 
@@ -203,7 +306,7 @@ public class PartialAsyncCommitPolicyTest {
         final ConsumerRecord<Object, Object> synCommitRecord = pendingRecords.get(asyncCommitTimes);
         partitionsToResume.add(new TopicPartition(synCommitRecord.topic(), synCommitRecord.partition()));
         addCompleteRecordInPolicy(policy, synCommitRecord);
-        assertThat(policy.tryCommit(true))
+        assertThat(policy.tryCommit(false))
                 .hasSize(partitionsToResume.size())
                 .isEqualTo(partitionsToResume);
         verify(mockConsumer, times(asyncCommitTimes)).commitAsync(any(), any());
@@ -213,31 +316,7 @@ public class PartialAsyncCommitPolicyTest {
     }
 
     @Test
-    public void testAsyncCommitIntertwineWithSyncCommits() {
-        final Consumer<Object, Object> mockConsumer = Mockito.mock(Consumer.class);
-        doNothing().when(mockConsumer).commitAsync(any());
-
-        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofSeconds(30), 10);
-
-        final Set<TopicPartition> partitionsToResume = new HashSet<>();
-        for (ConsumerRecord<Object, Object> record : pendingRecords) {
-            if (partitionsToResume.size() == 11) {
-                partitionsToResume.clear();
-            }
-            partitionsToResume.add(new TopicPartition(record.topic(), record.partition()));
-
-            addCompleteRecordInPolicy(policy, record);
-            assertThat(policy.tryCommit(true))
-                    .hasSize(partitionsToResume.size())
-                    .isEqualTo(partitionsToResume);
-        }
-
-        verify(mockConsumer, times(28)).commitAsync(any(), any());
-        verify(mockConsumer, times(2)).commitSync(any());
-    }
-
-    @Test
-    public void testForceSyncAfterAsyncCommitFailed() {
+    public void testForceSyncAfterAsyncPartialCommitFailed() {
         final Consumer<Object, Object> mockConsumer = Mockito.mock(Consumer.class);
         final Exception exception = new RuntimeException("expected exception");
 
@@ -253,7 +332,7 @@ public class PartialAsyncCommitPolicyTest {
         // a failed async commit on the first time
         final ConsumerRecord<Object, Object> triggerFailedRecord = pendingRecords.get(0);
         addCompleteRecordInPolicy(policy, triggerFailedRecord);
-        assertThat(policy.tryCommit(true))
+        assertThat(policy.tryCommit(false))
                 .hasSize(1)
                 .isEqualTo(Collections.singleton(new TopicPartition(triggerFailedRecord.topic(), triggerFailedRecord.partition())));
 
@@ -261,20 +340,33 @@ public class PartialAsyncCommitPolicyTest {
         verify(mockConsumer, never()).commitSync(any());
         assertThat(policy.forceSync()).isTrue();
         assertThat(policy.pendingAsyncCommitCount()).isZero();
+    }
 
-        // sync commit after the failed async commit
-        final ConsumerRecord<Object, Object> syncRecord = pendingRecords.get(1);
-        TestingUtils.addCompleteRecordInPolicy(policy, syncRecord);
+    @Test
+    public void testForceSyncAfterAsyncFullCommitFailed() {
+        final Consumer<Object, Object> mockConsumer = Mockito.mock(Consumer.class);
+        final Exception exception = new RuntimeException("expected exception");
+        // a failed async commit on the first time
+        final ConsumerRecord<Object, Object> triggerFailedRecord = pendingRecords.get(0);
+
+        doAnswer(invocation -> {
+            final OffsetCommitCallback callback = invocation.getArgument(0);
+            final Map<TopicPartition, OffsetAndMetadata> offsets = new HashMap<>();
+            offsets.put(new TopicPartition(triggerFailedRecord.topic(), triggerFailedRecord.partition()), new OffsetAndMetadata(triggerFailedRecord.offset()));
+            callback.onComplete(offsets, exception);
+            return null;
+        }).when(mockConsumer).commitAsync(any());
+
+        policy = new PartialAsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofSeconds(30), 10);
+
+        addCompleteRecordInPolicy(policy, triggerFailedRecord);
         assertThat(policy.tryCommit(true))
-                .hasSize(2)
-                .containsExactlyInAnyOrderElementsOf(Arrays.asList(
-                        new TopicPartition(syncRecord.topic(), syncRecord.partition()),
-                        new TopicPartition(syncRecord.topic(), triggerFailedRecord.partition())
-                ));
+                .hasSize(1)
+                .isEqualTo(Collections.singleton(new TopicPartition(triggerFailedRecord.topic(), triggerFailedRecord.partition())));
 
-        verify(mockConsumer, times(1)).commitAsync(any(), any());
-        verify(mockConsumer, times(1)).commitSync(any());
-        assertThat(policy.forceSync()).isFalse();
+        verify(mockConsumer, times(1)).commitAsync(any());
+        verify(mockConsumer, never()).commitSync(any());
+        assertThat(policy.forceSync()).isTrue();
         assertThat(policy.pendingAsyncCommitCount()).isZero();
     }
 }

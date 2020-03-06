@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 import static java.lang.Integer.min;
@@ -29,6 +30,8 @@ import static java.util.Objects.requireNonNull;
  * @param <V> the type of value for records consumed from Kafka
  */
 public final class LcKafkaConsumer<K, V> implements Closeable {
+    private static final AtomicInteger lastFetcherThreadId = new AtomicInteger();
+
     enum State {
         INIT(0),
         SUBSCRIBED(1),
@@ -210,13 +213,13 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
         final String firstTopic = topics.iterator().next();
         String postfix = firstTopic.substring(0, min(50, firstTopic.length()));
         postfix += topics.size() > 1 || firstTopic.length() > 50 ? "..." : "";
-        return "kafka-fetcher-for-" + postfix;
+        return "kafka-fetcher-for-" + postfix + "-" + lastFetcherThreadId.incrementAndGet();
     }
 
     private String fetcherThreadName(Pattern pattern) {
         final String patternInString = pattern.toString();
         String postfix = patternInString.substring(0, min(50, patternInString.length()));
         postfix += patternInString.length() > 50 ? "..." : "";
-        return "kafka-fetcher-for-" + postfix;
+        return "kafka-fetcher-for-" + postfix + "-" + lastFetcherThreadId.incrementAndGet();
     }
 }
