@@ -1,14 +1,11 @@
 package cn.leancloud.kafka.consumer;
 
 import org.apache.kafka.clients.consumer.Consumer;
-import org.apache.kafka.clients.consumer.OffsetAndMetadata;
-import org.apache.kafka.clients.consumer.OffsetCommitCallback;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.Map;
 import java.util.Set;
 
 import static java.util.Collections.emptySet;
@@ -17,7 +14,6 @@ final class AsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K,
     private static final Logger logger = LoggerFactory.getLogger(AsyncCommitPolicy.class);
 
     private final int maxPendingAsyncCommits;
-    private final OffsetCommitCallback callback;
     private int pendingAsyncCommitCounter;
     private boolean forceSync;
 
@@ -28,19 +24,18 @@ final class AsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K,
                       int maxPendingAsyncCommits) {
         super(consumer, syncCommitRetryInterval, maxAttemptsForEachSyncCommit, recommitInterval);
         this.maxPendingAsyncCommits = maxPendingAsyncCommits;
-        this.callback = new AsyncCommitCallback();
     }
 
     @Override
-    Set<TopicPartition> tryCommit0(boolean noPendingRecords) {
+    Set<TopicPartition> tryCommit0(boolean noPendingRecords, ProcessRecordsProgress progress) {
         // with forceSync mark it means a previous async commit was failed, so
         // we do a sync commit no matter if there's any pending records or completed offsets
-        if (!forceSync && (!noPendingRecords || noTopicOffsetsToCommit())) {
+        if (!forceSync && (!noPendingRecords || progress.noOffsetsToCommit())) {
             return emptySet();
         }
 
-        final Set<TopicPartition> partitions = partitionsForAllRecordsStates();
-        commit();
+        final Set<TopicPartition> partitions = progress.allPartitions();
+        commit(progress);
 
         // for our commit policy, no matter syncCommit or asyncCommit we are using, we always
         // commit all assigned offsets, so we can update recommit time here safely. And
@@ -60,29 +55,24 @@ final class AsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K,
         return forceSync;
     }
 
-    private void commit() {
+    private void commit(ProcessRecordsProgress progress) {
         if (forceSync || pendingAsyncCommitCounter >= maxPendingAsyncCommits) {
             commitSyncWithRetry();
             pendingAsyncCommitCounter = 0;
             forceSync = false;
-            clearAllProcessingRecordStates();
+            progress.clearAll();
         } else {
             ++pendingAsyncCommitCounter;
-            consumer.commitAsync(callback);
-        }
-    }
-
-    private class AsyncCommitCallback implements OffsetCommitCallback {
-        @Override
-        public void onComplete(Map<TopicPartition, OffsetAndMetadata> offsets, Exception exception) {
-            --pendingAsyncCommitCounter;
-            assert pendingAsyncCommitCounter >= 0 : "actual: " + pendingAsyncCommitCounter;
-            if (exception != null) {
-                logger.warn("Failed to commit offsets: " + offsets + " asynchronously", exception);
-                forceSync = true;
-            } else {
-                clearProcessingRecordStatesForCompletedPartitions(offsets);
-            }
+            consumer.commitAsync(((offsets, exception) -> {
+                --pendingAsyncCommitCounter;
+                assert pendingAsyncCommitCounter >= 0 : "actual: " + pendingAsyncCommitCounter;
+                if (exception != null) {
+                    logger.warn("Failed to commit offsets: " + offsets + " asynchronously", exception);
+                    forceSync = true;
+                } else {
+                    progress.clearCompletedPartitions(offsets);
+                }
+            }));
         }
     }
 }

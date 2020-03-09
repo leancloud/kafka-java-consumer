@@ -17,16 +17,18 @@ import static java.util.stream.Collectors.toSet;
 final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
     private static final Logger logger = LoggerFactory.getLogger(RebalanceListener.class);
 
-    private final CommitPolicy<K, V> policy;
+    private final CommitPolicy policy;
     private final Consumer<K, V> consumer;
+    private final ProcessRecordsProgress progress;
     private final Set<TopicPartition> knownPartitions;
     private final ConsumerSeekDestination forceSeekTo;
     private Set<TopicPartition> lastRevokedPartitions;
     private Set<TopicPartition> pausedPartitions;
 
-    RebalanceListener(Consumer<K, V> consumer, CommitPolicy<K, V> policy, ConsumerSeekDestination forceSeekTo) {
+    RebalanceListener(Consumer<K, V> consumer, ProcessRecordsProgress progress, CommitPolicy policy, ConsumerSeekDestination forceSeekTo) {
         this.policy = policy;
         this.consumer = consumer;
+        this.progress = progress;
         this.pausedPartitions = Collections.emptySet();
         this.knownPartitions = new HashSet<>();
         this.forceSeekTo = forceSeekTo;
@@ -39,7 +41,7 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
         pausedPartitions = consumer.paused();
         if (!pausedPartitions.isEmpty()) {
             pausedPartitions = new HashSet<>(pausedPartitions);
-            pausedPartitions.removeAll(policy.partialCommitSync());
+            pausedPartitions.removeAll(policy.partialCommitSync(progress));
         }
     }
 
@@ -58,10 +60,8 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
             lastRevokedPartitions.remove(p);
         }
 
-        // revoke those partitions which was revoked and not reassigned
-        if (!lastRevokedPartitions.isEmpty()) {
-            policy.revokePartitions(lastRevokedPartitions);
-        }
+        clearProgressForRevokedPartitions(lastRevokedPartitions);
+
         lastRevokedPartitions.clear();
     }
 
@@ -93,5 +93,12 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
         }
 
         pausedPartitions = Collections.emptySet();
+    }
+
+    private void clearProgressForRevokedPartitions(Collection<TopicPartition> revokedPartitions) {
+        // revoke those partitions which was revoked and not reassigned
+        if (!revokedPartitions.isEmpty()) {
+            progress.clearFor(revokedPartitions);
+        }
     }
 }

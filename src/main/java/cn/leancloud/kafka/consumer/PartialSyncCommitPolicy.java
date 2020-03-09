@@ -17,17 +17,17 @@ final class PartialSyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPol
     }
 
     @Override
-    Set<TopicPartition> tryCommit0(boolean noPendingRecords) {
-        if (noTopicOffsetsToCommit()) {
+    Set<TopicPartition> tryCommit0(boolean noPendingRecords, ProcessRecordsProgress progress) {
+        if (progress.noOffsetsToCommit()) {
             return emptySet();
         }
 
         if (noPendingRecords) {
-            final Set<TopicPartition> completePartitions = fullCommitSync();
+            final Set<TopicPartition> completePartitions = fullCommitSync(progress);
             updateNextRecommitTime();
             return completePartitions;
         }
 
-        return partialCommitSync();
+        return partialCommitSync(progress);
     }
 }

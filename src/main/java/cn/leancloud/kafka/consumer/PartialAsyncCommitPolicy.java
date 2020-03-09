@@ -2,7 +2,6 @@ package cn.leancloud.kafka.consumer;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
-import org.apache.kafka.clients.consumer.OffsetCommitCallback;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,8 +15,6 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPo
     private static final Logger logger = LoggerFactory.getLogger(PartialAsyncCommitPolicy.class);
 
     private final int maxPendingAsyncCommits;
-    private final OffsetCommitCallback fullCommitCallback;
-    private final OffsetCommitCallback partialCommitCallback;
     private final Map<TopicPartition, OffsetAndMetadata> pendingAsyncCommitOffset;
     private int pendingAsyncCommitCounter;
     private boolean forceSync;
@@ -29,32 +26,30 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPo
                              int maxPendingAsyncCommits) {
         super(consumer, syncCommitRetryInterval, maxAttemptsForEachSyncCommit, forceWholeCommitInterval);
         this.maxPendingAsyncCommits = maxPendingAsyncCommits;
-        this.fullCommitCallback = new AsyncFullCommitCallback();
-        this.partialCommitCallback = new AsyncPartialCommitCallback();
         this.pendingAsyncCommitOffset = new HashMap<>();
     }
 
     @Override
-    Set<TopicPartition> tryCommit0(boolean noPendingRecords) {
+    Set<TopicPartition> tryCommit0(boolean noPendingRecords, ProcessRecordsProgress progress) {
         if (forceSync) {
-            return tryCommitOnForceSync(noPendingRecords);
+            return tryCommitOnForceSync(noPendingRecords, progress);
         }
 
-        if (noTopicOffsetsToCommit()) {
+        if (progress.noOffsetsToCommit()) {
             return emptySet();
         }
 
         if (noPendingRecords) {
-            return fullCommit();
+            return fullCommit(progress);
         }
 
         final Set<TopicPartition> completePartitions;
         if (useSyncCommit()) {
-            completePartitions = partialCommitSync();
+            completePartitions = partialCommitSync(progress);
             pendingAsyncCommitOffset.clear();
             pendingAsyncCommitCounter = 0;
         } else {
-            final Map<TopicPartition, OffsetAndMetadata> offsets = completedTopicOffsetsToCommit();
+            final Map<TopicPartition, OffsetAndMetadata> offsets = progress.completedOffsetsToCommit();
             for (Map.Entry<TopicPartition, OffsetAndMetadata> entry : pendingAsyncCommitOffset.entrySet()) {
                 offsets.remove(entry.getKey(), entry.getValue());
             }
@@ -65,9 +60,21 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPo
 
             ++pendingAsyncCommitCounter;
 
-            completePartitions = partitionsToSafeResume(offsets);
+            completePartitions = progress.completedPartitions(offsets);
             pendingAsyncCommitOffset.putAll(offsets);
-            consumer.commitAsync(offsets, partialCommitCallback);
+            consumer.commitAsync(offsets, (committedOffsets, exception) -> {
+                --pendingAsyncCommitCounter;
+                assert pendingAsyncCommitCounter >= 0 : "actual: " + pendingAsyncCommitCounter;
+                if (exception != null) {
+                    // if last async commit is failed, we do not clean cached completed offsets and let next
+                    // commit be a sync commit so all the complete offsets will be committed at that time
+                    logger.warn("Failed to commit offset: " + committedOffsets + " asynchronously", exception);
+                    forceSync = true;
+                } else {
+                    progress.updateCommittedOffsets(committedOffsets);
+                    progress.clearCompletedPartitions(committedOffsets);
+                }
+            });
         }
         return completePartitions;
     }
@@ -97,13 +104,13 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPo
         this.forceSync = forceSync;
     }
 
-    private Set<TopicPartition> tryCommitOnForceSync(boolean noPendingRecords) {
+    private Set<TopicPartition> tryCommitOnForceSync(boolean noPendingRecords, ProcessRecordsProgress progress) {
         final Set<TopicPartition> completedPartitions;
         if (noPendingRecords) {
-            completedPartitions = fullCommitSync();
+            completedPartitions = fullCommitSync(progress);
             updateNextRecommitTime();
         } else {
-            completedPartitions = partialCommitSync();
+            completedPartitions = partialCommitSync(progress);
         }
         pendingAsyncCommitOffset.clear();
         pendingAsyncCommitCounter = 0;
@@ -115,14 +122,25 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPo
         return pendingAsyncCommitCounter >= maxPendingAsyncCommits;
     }
 
-    private Set<TopicPartition> fullCommit() {
-        final Set<TopicPartition> completePartitions = partitionsForAllRecordsStates();
+    private Set<TopicPartition> fullCommit(ProcessRecordsProgress progress) {
+        final Set<TopicPartition> completePartitions = progress.allPartitions();
         if (useSyncCommit()) {
             commitSyncWithRetry();
             pendingAsyncCommitCounter = 0;
         } else {
             ++pendingAsyncCommitCounter;
-            consumer.commitAsync(fullCommitCallback);
+            consumer.commitAsync((offsets, exception) -> {
+                --pendingAsyncCommitCounter;
+                assert pendingAsyncCommitCounter >= 0 : "actual: " + pendingAsyncCommitCounter;
+                if (exception != null) {
+                    // if last async commit is failed, we do not clean cached completed offsets and let next
+                    // commit be a sync commit so all the completed offsets will be committed at that time
+                    logger.warn("Failed to commit offset: " + offsets + " asynchronously", exception);
+                    forceSync = true;
+                } else {
+                    progress.clearCompletedPartitions(offsets);
+                }
+            });
         }
         // no matter sync or async commit we are using, we always
         // commit all assigned offsets, so we can update recommit time here safely. And
@@ -131,41 +149,8 @@ final class PartialAsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPo
 
         // we can clear records states even though the async commit may fail. because if
         // it did failed, we will do a sync commit on next try commit
-        clearAllProcessingRecordStates();
+        progress.clearAll();
         pendingAsyncCommitOffset.clear();
         return completePartitions;
-    }
-
-    private class AsyncFullCommitCallback implements OffsetCommitCallback {
-        @Override
-        public void onComplete(Map<TopicPartition, OffsetAndMetadata> offsets, Exception exception) {
-            --pendingAsyncCommitCounter;
-            assert pendingAsyncCommitCounter >= 0 : "actual: " + pendingAsyncCommitCounter;
-            if (exception != null) {
-                // if last async commit is failed, we do not clean cached completed offsets and let next
-                // commit be a sync commit so all the complete offsets will be committed at that time
-                logger.warn("Failed to commit offset: " + offsets + " asynchronously", exception);
-                forceSync = true;
-            } else {
-                clearProcessingRecordStatesForCompletedPartitions(offsets);
-            }
-        }
-    }
-
-    private class AsyncPartialCommitCallback implements OffsetCommitCallback {
-        @Override
-        public void onComplete(Map<TopicPartition, OffsetAndMetadata> offsets, Exception exception) {
-            --pendingAsyncCommitCounter;
-            assert pendingAsyncCommitCounter >= 0 : "actual: " + pendingAsyncCommitCounter;
-            if (exception != null) {
-                // if last async commit is failed, we do not clean cached completed offsets and let next
-                // commit be a sync commit so all the complete offsets will be committed at that time
-                logger.warn("Failed to commit offset: " + offsets + " asynchronously", exception);
-                forceSync = true;
-            } else {
-                updatePartialCommittedOffsets(offsets);
-                clearProcessingRecordStatesForCompletedPartitions(offsets);
-            }
-        }
     }
 }

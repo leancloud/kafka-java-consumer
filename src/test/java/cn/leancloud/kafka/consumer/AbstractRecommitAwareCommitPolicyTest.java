@@ -27,7 +27,7 @@ public class AbstractRecommitAwareCommitPolicyTest {
         }
 
         @Override
-        Set<TopicPartition> tryCommit0(boolean noPendingRecords) {
+        Set<TopicPartition> tryCommit0(boolean noPendingRecords, ProcessRecordsProgress progress) {
             return null;
         }
     }
@@ -55,7 +55,7 @@ public class AbstractRecommitAwareCommitPolicyTest {
         policy = new TestingPolicy(consumer, Duration.ZERO, 3, Duration.ofMillis(200));
 
         policy.updateNextRecommitTime(now - Duration.ofMillis(200).toNanos());
-        policy.tryCommit(true);
+        policy.tryCommit(true, new ProcessRecordsProgress());
 
         verify(consumer, times(1)).commitSync(previousCommitOffsets);
         assertThat(policy.nextRecommitNanos()).isGreaterThan(now + Duration.ofMillis(200).toNanos());

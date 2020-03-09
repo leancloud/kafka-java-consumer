@@ -52,7 +52,7 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
     private final Thread fetcherThread;
     private final Fetcher<K, V> fetcher;
     private final ExecutorService workerPool;
-    private final CommitPolicy<K, V> policy;
+    private final CommitPolicy policy;
     private final boolean shutdownWorkerPoolOnStop;
     private final ConsumerSeekDestination forceSeekTo;
     private volatile State state;
@@ -94,7 +94,7 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
 
         ensureInInit();
 
-        consumer.subscribe(topics, new RebalanceListener<>(consumer, policy, forceSeekTo));
+        consumer.subscribe(topics, new RebalanceListener<>(consumer, fetcher.progress(), policy, forceSeekTo));
 
         fetcherThread.setName(fetcherThreadName(topics));
         fetcherThread.start();
@@ -123,7 +123,7 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
 
         ensureInInit();
 
-        consumer.subscribe(pattern, new RebalanceListener<>(consumer, policy, forceSeekTo));
+        consumer.subscribe(pattern, new RebalanceListener<>(consumer, fetcher.progress(), policy, forceSeekTo));
 
         fetcherThread.setName(fetcherThreadName(pattern));
         fetcherThread.start();
@@ -183,7 +183,7 @@ public final class LcKafkaConsumer<K, V> implements Closeable {
     }
 
     @VisibleForTesting
-    CommitPolicy<K, V> policy() {
+    CommitPolicy policy() {
         return policy;
     }
 

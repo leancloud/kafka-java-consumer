@@ -20,12 +20,13 @@ public class AutoCommitPolicyTest {
     private AutoCommitPolicy<Object, Object> policy;
     private List<TopicPartition> partitions;
     private List<ConsumerRecord<Object, Object>> pendingRecords;
+    private ProcessRecordsProgress progress;
 
     @Before
     public void setUp() {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
+        progress = new ProcessRecordsProgress();
         policy = new AutoCommitPolicy<>(consumer);
-
         partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         assignPartitions(consumer, partitions, 0L);
         pendingRecords = generateConsumedRecords(consumer, partitions, 2);
@@ -38,62 +39,61 @@ public class AutoCommitPolicyTest {
 
     @Test
     public void testOnlyConsumedRecords() {
-        assertThat(policy.tryCommit(true)).isEmpty();
+        assertThat(policy.tryCommit(true, progress)).isEmpty();
         for (TopicPartition partition : partitions) {
             assertThat(consumer.committed(partition)).isNull();
         }
-        assertThat(policy.noCompletedOffsets()).isTrue();
-        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
+        assertThat(progress.noCompletedRecords()).isTrue();
+        assertThat(progress.noPendingRecords()).isTrue();
     }
 
     @Test
     public void testOnlyPendingRecords() {
-        addPendingRecordsInPolicy(policy, pendingRecords);
-        assertThat(policy.tryCommit(false)).isEmpty();
+        addPendingRecordsInPolicy(progress, pendingRecords);
+        assertThat(policy.tryCommit(false, progress)).isEmpty();
         for (TopicPartition partition : partitions) {
             assertThat(consumer.committed(partition)).isNull();
         }
-        assertThat(policy.noCompletedOffsets()).isFalse();
-        assertThat(policy.topicOffsetHighWaterMark()).isNotEmpty();
+        assertThat(progress.noCompletedRecords()).isFalse();
+        assertThat(progress.noPendingRecords()).isFalse();
     }
 
     @Test
     public void testHasCompleteRecordsAndPendingRecords() {
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
-            policy.markPendingRecord(record);
+            progress.markPendingRecord(record);
 
             // complete the first half of the partitions
             if (record.partition() < partitions.size() / 2 && record.offset() < 3) {
-                policy.markCompletedRecord(record);
+                progress.markCompletedRecord(record);
             }
         }
 
-        assertThat(policy.tryCommit(false))
+        assertThat(policy.tryCommit(false, progress))
                 .hasSize(partitions.size() / 2)
                 .containsExactlyInAnyOrderElementsOf(partitions.subList(0, partitions.size() / 2));
         for (TopicPartition partition : partitions) {
             // first half of the partitions is completed and cleaned
             // second half of the partitions is not completed and the topic offset mark is still there
             if (partition.partition() < partitions.size() / 2) {
-                assertThat(policy.topicOffsetHighWaterMark().get(partition)).isNull();
+                assertThat(progress.pendingRecordOffsets().get(partition)).isNull();
             } else {
-                assertThat(policy.topicOffsetHighWaterMark().get(partition)).isEqualTo(3);
+                assertThat(progress.pendingRecordOffsets().get(partition)).isEqualTo(3);
             }
         }
 
-        assertThat(policy.completedTopicOffsetsToCommit()).isEmpty();
+        assertThat(progress.completedOffsetsToCommit()).isEmpty();
     }
 
     @Test
     public void testFullCommit() {
-        addCompleteRecordsInPolicy(policy, pendingRecords);
+        addCompleteRecordsInPolicy(progress, pendingRecords);
 
-
-        assertThat(policy.tryCommit(true))
+        assertThat(policy.tryCommit(true, progress))
                 .hasSize(partitions.size())
                 .containsExactlyInAnyOrderElementsOf(partitions);
 
-        assertThat(policy.noCompletedOffsets()).isTrue();
-        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
+        assertThat(progress.noCompletedRecords()).isTrue();
+        assertThat(progress.noPendingRecords()).isTrue();
     }
 }
