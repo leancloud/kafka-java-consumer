@@ -5,7 +5,6 @@ import org.apache.kafka.common.TopicPartition;
 
 import java.time.Duration;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.Set;
 
 final class SyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K, V> {
@@ -17,18 +16,13 @@ final class SyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K, 
     }
 
     @Override
-    public Set<TopicPartition> tryCommit(boolean noPendingRecords) {
-        if (noPendingRecords && !completedTopicOffsets.isEmpty()) {
-            commitSync();
-            final Set<TopicPartition> completePartitions = new HashSet<>(completedTopicOffsets.keySet());
-            completedTopicOffsets.clear();
-            topicOffsetHighWaterMark.clear();
-            updateNextRecommitTime();
-            return completePartitions;
-        } else if (needRecommit()) {
-            commitSync(offsetsForRecommit());
-            updateNextRecommitTime();
+    Set<TopicPartition> tryCommit0(boolean noPendingRecords) {
+        if (!noPendingRecords || noTopicOffsetsToCommit()) {
+            return Collections.emptySet();
         }
-        return Collections.emptySet();
+
+        final Set<TopicPartition> completePartitions = fullCommitSync();
+        updateNextRecommitTime();
+        return completePartitions;
     }
 }

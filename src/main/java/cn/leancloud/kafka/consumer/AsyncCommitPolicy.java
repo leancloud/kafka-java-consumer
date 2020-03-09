@@ -8,10 +8,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+
+import static java.util.Collections.emptySet;
 
 final class AsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K, V> {
     private static final Logger logger = LoggerFactory.getLogger(AsyncCommitPolicy.class);
@@ -32,21 +32,21 @@ final class AsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K,
     }
 
     @Override
-    public Set<TopicPartition> tryCommit(boolean noPendingRecords) {
-        if (!noPendingRecords || completedTopicOffsets.isEmpty()) {
-            if (needRecommit()) {
-                commit(offsetsForRecommit());
-            }
-            return Collections.emptySet();
+    Set<TopicPartition> tryCommit0(boolean noPendingRecords) {
+        // with forceSync mark it means a previous async commit was failed, so
+        // we do a sync commit no matter if there's any pending records or completed offsets
+        if (!forceSync && (!noPendingRecords || noTopicOffsetsToCommit())) {
+            return emptySet();
         }
 
+        final Set<TopicPartition> partitions = partitionsForAllRecordsStates();
         commit();
 
-        final Set<TopicPartition> partitions = new HashSet<>(completedTopicOffsets.keySet());
-        // it's OK to clear these collections here and we will not left any complete offset without commit even
-        // when this async commit failed because if the async commit failed we will do a sync commit after all
-        completedTopicOffsets.clear();
-        topicOffsetHighWaterMark.clear();
+        // for our commit policy, no matter syncCommit or asyncCommit we are using, we always
+        // commit all assigned offsets, so we can update recommit time here safely. And
+        // we don't mind that if the async commit request failed, we tolerate this situation
+        updateNextRecommitTime();
+
         return partitions;
     }
 
@@ -60,44 +60,15 @@ final class AsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K,
         return forceSync;
     }
 
-    @VisibleForTesting
-    void setForceSync(boolean forceSync) {
-        this.forceSync = forceSync;
-    }
-
     private void commit() {
-        commit(Collections.emptyMap());
-    }
-
-    private void commit(Map<TopicPartition, OffsetAndMetadata> offsets) {
         if (forceSync || pendingAsyncCommitCounter >= maxPendingAsyncCommits) {
-            syncCommit(offsets);
+            commitSyncWithRetry();
             pendingAsyncCommitCounter = 0;
             forceSync = false;
+            clearAllProcessingRecordStates();
         } else {
-            asyncCommit(offsets);
-        }
-
-        // for our commit policy, no matter syncCommit or asyncCommit we use, we always
-        // commit all assigned offsets, so we can update recommit time here safely. And
-        // we don't mind that if the async commit request failed, we tolerate this situation
-        updateNextRecommitTime();
-    }
-
-    private void asyncCommit(Map<TopicPartition, OffsetAndMetadata> offsets) {
-        ++pendingAsyncCommitCounter;
-        if (offsets.isEmpty()) {
+            ++pendingAsyncCommitCounter;
             consumer.commitAsync(callback);
-        } else {
-            consumer.commitAsync(offsets, callback);
-        }
-    }
-
-    private void syncCommit(Map<TopicPartition, OffsetAndMetadata> offsets) {
-        if (offsets.isEmpty()) {
-            commitSync();
-        } else {
-            commitSync(offsets);
         }
     }
 
@@ -109,6 +80,8 @@ final class AsyncCommitPolicy<K, V> extends AbstractRecommitAwareCommitPolicy<K,
             if (exception != null) {
                 logger.warn("Failed to commit offsets: " + offsets + " asynchronously", exception);
                 forceSync = true;
+            } else {
+                clearProcessingRecordStatesForCompletedPartitions(offsets);
             }
         }
     }

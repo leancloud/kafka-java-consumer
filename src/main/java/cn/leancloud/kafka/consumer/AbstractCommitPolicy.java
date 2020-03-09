@@ -7,13 +7,8 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.RetriableException;
 
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
-import static java.util.Comparator.comparing;
-import static java.util.function.BinaryOperator.maxBy;
 import static java.util.stream.Collectors.toSet;
 
 abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
@@ -49,68 +44,68 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
         }
     }
 
-    final Map<TopicPartition, Long> topicOffsetHighWaterMark;
-    final Map<TopicPartition, OffsetAndMetadata> completedTopicOffsets;
     protected final Consumer<K, V> consumer;
+    private final Map<TopicPartition, Long> topicOffsetHighWaterMark;
+    private final Map<TopicPartition, CompletedOffsets> completedOffsets;
     private final long syncCommitRetryIntervalMs;
     private final int maxAttemptsForEachSyncCommit;
 
     AbstractCommitPolicy(Consumer<K, V> consumer, Duration syncCommitRetryInterval, int maxAttemptsForEachSyncCommit) {
         this.consumer = consumer;
         this.topicOffsetHighWaterMark = new HashMap<>();
-        this.completedTopicOffsets = new HashMap<>();
+        this.completedOffsets = new HashMap<>();
         this.syncCommitRetryIntervalMs = syncCommitRetryInterval.toMillis();
         this.maxAttemptsForEachSyncCommit = maxAttemptsForEachSyncCommit;
     }
 
     @Override
     public void markPendingRecord(ConsumerRecord<K, V> record) {
+        final TopicPartition topicPartition = new TopicPartition(record.topic(), record.partition());
         topicOffsetHighWaterMark.merge(
-                new TopicPartition(record.topic(), record.partition()),
+                topicPartition,
                 record.offset() + 1,
                 Math::max);
+
+        final CompletedOffsets offset = completedOffsets.get(topicPartition);
+        // please note that if offset exists, it could happen for record.offset() >= offset.nextOffsetToCommit()
+        // when there're duplicate records which have lower offset than our next offset to commit consumed from broker
+        if (offset == null) {
+            completedOffsets.put(topicPartition, new CompletedOffsets(record.offset() - 1L));
+        }
     }
 
     @Override
     public void markCompletedRecord(ConsumerRecord<K, V> record) {
-        completedTopicOffsets.merge(
-                new TopicPartition(record.topic(), record.partition()),
-                new OffsetAndMetadata(record.offset() + 1L),
-                maxBy(comparing(OffsetAndMetadata::offset)));
+        final CompletedOffsets offset = completedOffsets.get(new TopicPartition(record.topic(), record.partition()));
+        // offset could be null, when the partition of the record was revoked before its processing was done
+        if (offset != null) {
+            offset.addCompleteOffset(record.offset());
+        }
     }
 
     @Override
-    public Set<TopicPartition> syncPartialCommit() {
-        commitSync(completedTopicOffsets);
-        final Set<TopicPartition> partitions = checkCompletedPartitions();
-        completedTopicOffsets.clear();
-        for (TopicPartition p : partitions) {
-            topicOffsetHighWaterMark.remove(p);
-        }
-        return partitions;
+    public void revokePartitions(Collection<TopicPartition> partitions) {
+        clearProcessingRecordStatesFor(partitions);
     }
 
-    Set<TopicPartition> getCompletedPartitions(boolean noPendingRecords) {
-        final Set<TopicPartition> partitions;
-        if (noPendingRecords) {
-            assert checkCompletedPartitions().equals(topicOffsetHighWaterMark.keySet())
-                    : "expect: " + checkCompletedPartitions() + " actual: " + topicOffsetHighWaterMark.keySet();
-            partitions = new HashSet<>(topicOffsetHighWaterMark.keySet());
-        } else {
-            partitions = checkCompletedPartitions();
+    @Override
+    public Set<TopicPartition> partialCommitSync() {
+        final Map<TopicPartition, OffsetAndMetadata> offsetsToCommit = completedTopicOffsetsToCommit();
+        if (offsetsToCommit.isEmpty()) {
+            return Collections.emptySet();
         }
-        return partitions;
+        commitSyncWithRetry(offsetsToCommit);
+        updatePartialCommittedOffsets(offsetsToCommit);
+
+        return clearProcessingRecordStatesForCompletedPartitions(offsetsToCommit);
     }
 
-    void clearCachedCompletedPartitionsRecords(Set<TopicPartition> completedPartitions, boolean noPendingRecords) {
-        completedTopicOffsets.clear();
-        if (noPendingRecords) {
-            topicOffsetHighWaterMark.clear();
-        } else {
-            for (TopicPartition p : completedPartitions) {
-                topicOffsetHighWaterMark.remove(p);
-            }
-        }
+    Set<TopicPartition> fullCommitSync() {
+        commitSyncWithRetry();
+
+        final Set<TopicPartition> completePartitions = partitionsForAllRecordsStates();
+        clearAllProcessingRecordStates();
+        return completePartitions;
     }
 
     @VisibleForTesting
@@ -118,12 +113,49 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
         return topicOffsetHighWaterMark;
     }
 
-    @VisibleForTesting
-    Map<TopicPartition, OffsetAndMetadata> completedTopicOffsets() {
-        return completedTopicOffsets;
+    Map<TopicPartition, OffsetAndMetadata> completedTopicOffsetsToCommit() {
+        if (noCompletedOffsets()) {
+            return Collections.emptyMap();
+        }
+
+        final Map<TopicPartition, OffsetAndMetadata> offsets = new HashMap<>();
+        for (Map.Entry<TopicPartition, CompletedOffsets> entry : completedOffsets.entrySet()) {
+            final CompletedOffsets offset = entry.getValue();
+            if (offset.hasOffsetToCommit()) {
+                offsets.put(entry.getKey(), offset.getOffsetToCommit());
+            }
+        }
+
+        return offsets;
     }
 
-    void commitSync() {
+    boolean noTopicOffsetsToCommit() {
+        if (noCompletedOffsets()) {
+            return true;
+        }
+
+        for (Map.Entry<TopicPartition, CompletedOffsets> entry : completedOffsets.entrySet()) {
+            final CompletedOffsets offset = entry.getValue();
+            if (offset.hasOffsetToCommit()) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    void updatePartialCommittedOffsets(Map<TopicPartition, OffsetAndMetadata> offsets) {
+        for (Map.Entry<TopicPartition, OffsetAndMetadata> entry : offsets.entrySet()) {
+            final CompletedOffsets offset = completedOffsets.get(entry.getKey());
+            offset.updateCommittedOffset(entry.getValue().offset());
+        }
+    }
+
+    boolean noCompletedOffsets() {
+        return completedOffsets.isEmpty();
+    }
+
+    void commitSyncWithRetry() {
         final RetryContext context = context();
         do {
             try {
@@ -135,7 +167,7 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
         } while (true);
     }
 
-    void commitSync(Map<TopicPartition, OffsetAndMetadata> offsets) {
+    void commitSyncWithRetry(Map<TopicPartition, OffsetAndMetadata> offsets) {
         final RetryContext context = context();
         do {
             try {
@@ -147,8 +179,34 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy<K, V> {
         } while (true);
     }
 
-    private Set<TopicPartition> checkCompletedPartitions() {
-        return completedTopicOffsets
+    Set<TopicPartition> partitionsForAllRecordsStates() {
+        return new HashSet<>(topicOffsetHighWaterMark.keySet());
+    }
+
+    void clearAllProcessingRecordStates() {
+        topicOffsetHighWaterMark.clear();
+        completedOffsets.clear();
+    }
+
+    Set<TopicPartition> clearProcessingRecordStatesForCompletedPartitions(Map<TopicPartition, OffsetAndMetadata> committedOffsets) {
+        final Set<TopicPartition> partitions = partitionsToSafeResume(committedOffsets);
+        clearProcessingRecordStatesFor(partitions);
+        return partitions;
+    }
+
+    void clearProcessingRecordStatesFor(Collection<TopicPartition> partitions) {
+        for (TopicPartition p : partitions) {
+            topicOffsetHighWaterMark.remove(p);
+            completedOffsets.remove(p);
+        }
+    }
+
+    Set<TopicPartition> partitionsToSafeResume() {
+        return partitionsToSafeResume(completedTopicOffsetsToCommit());
+    }
+
+    Set<TopicPartition> partitionsToSafeResume(Map<TopicPartition, OffsetAndMetadata> completedOffsets) {
+        return completedOffsets
                 .entrySet()
                 .stream()
                 .filter(entry -> topicOffsetMeetHighWaterMark(entry.getKey(), entry.getValue()))

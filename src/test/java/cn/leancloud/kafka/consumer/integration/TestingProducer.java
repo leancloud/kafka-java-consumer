@@ -3,6 +3,7 @@ package cn.leancloud.kafka.consumer.integration;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.serialization.IntegerSerializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.slf4j.Logger;
@@ -15,8 +16,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
@@ -49,6 +49,7 @@ public class TestingProducer implements Closeable {
             for (Thread t : workerThreads) {
                 t.join();
             }
+            producer.close();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
         }
@@ -89,7 +90,8 @@ public class TestingProducer implements Closeable {
             worker.future.thenApply(c -> {
                 totalSentCount.addAndGet(c);
                 if (finishedWorkerCount.incrementAndGet() == concurrentThreadCount) {
-                    future.complete(totalSentCount.get());
+                    boolean ret = future.complete(totalSentCount.get());
+                    assert ret;
                 }
                 return c;
             });
@@ -120,19 +122,27 @@ public class TestingProducer implements Closeable {
                 final Predicate<ProducerWorker> needStop = this.needStop;
                 final Producer<Integer, String> producer = TestingProducer.this.producer;
                 final long intervalMs = TestingProducer.this.sendInterval.toMillis();
+                final ConcurrentMap<ProducerRecord<Integer, String>, Future<RecordMetadata>> futuresMap = new ConcurrentHashMap<>();
                 barrier.await();
                 logger.info("Producer worker: {} started", name);
                 int index = 0;
                 while (!closed && !needStop.test(this)) {
                     final ProducerRecord<Integer, String> record = new ProducerRecord<>(topic, index, name + "-" + index++);
-                    producer.send(record, (metadata, exception) -> {
+                    final Future<RecordMetadata> future = producer.send(record, (metadata, exception) -> {
                         if (exception != null) {
                             logger.error("Produce record failed", exception);
                             closed = true;
+                        } else {
+                            futuresMap.remove(record);
                         }
                     });
+                    futuresMap.put(record, future);
                     ++sentCount;
                     Thread.sleep(intervalMs);
+                }
+
+                for (Future<RecordMetadata> f : futuresMap.values()) {
+                    f.get();
                 }
 
                 future.complete(sentCount);

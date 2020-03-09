@@ -3,6 +3,7 @@ package cn.leancloud.kafka.consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
 
@@ -30,7 +31,12 @@ final class NoOpCommitPolicy<K, V> implements CommitPolicy<K, V> {
     }
 
     @Override
-    public Set<TopicPartition> syncPartialCommit() {
+    public Set<TopicPartition> partialCommitSync() {
         return Collections.emptySet();
+    }
+
+    @Override
+    public void revokePartitions(Collection<TopicPartition> partitions) {
+
     }
 }
