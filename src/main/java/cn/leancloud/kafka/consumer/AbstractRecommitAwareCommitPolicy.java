@@ -23,15 +23,15 @@ abstract class AbstractRecommitAwareCommitPolicy<K, V> extends AbstractCommitPol
     }
 
     @Override
-    public final Set<TopicPartition> tryCommit(boolean noPendingRecords) {
+    public final Set<TopicPartition> tryCommit(boolean noPendingRecords, ProcessRecordsProgress progress) {
         if (needRecommit()) {
             commitSyncWithRetry(offsetsForRecommit());
             updateNextRecommitTime();
         }
-        return tryCommit0(noPendingRecords);
+        return tryCommit0(noPendingRecords, progress);
     }
 
-    abstract Set<TopicPartition> tryCommit0(boolean noPendingRecords);
+    abstract Set<TopicPartition> tryCommit0(boolean noPendingRecords, ProcessRecordsProgress progress);
 
     void updateNextRecommitTime() {
         updateNextRecommitTime(System.nanoTime());

@@ -15,18 +15,18 @@ final class AutoCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
     }
 
     @Override
-    public Set<TopicPartition> tryCommit(boolean noPendingRecords) {
-        if (noTopicOffsetsToCommit()) {
+    public Set<TopicPartition> tryCommit(boolean noPendingRecords, ProcessRecordsProgress progress) {
+        if (progress.noOffsetsToCommit()) {
             return emptySet();
         }
 
         final Set<TopicPartition> partitions;
         if (noPendingRecords) {
-            partitions = partitionsForAllRecordsStates();
-            clearAllProcessingRecordStates();
+            partitions = progress.allPartitions();
+            progress.clearAll();
         } else {
-            partitions = partitionsToSafeResume();
-            clearProcessingRecordStatesFor(partitions);
+            partitions = progress.completedPartitions();
+            progress.clearFor(partitions);
         }
 
         return partitions;

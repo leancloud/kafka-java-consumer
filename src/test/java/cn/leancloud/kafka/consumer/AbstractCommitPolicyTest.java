@@ -29,18 +29,20 @@ public class AbstractCommitPolicyTest {
         }
 
         @Override
-        public Set<TopicPartition> tryCommit(boolean noPendingRecords) {
+        public Set<TopicPartition> tryCommit(boolean noPendingRecords, ProcessRecordsProgress progress) {
             return Collections.emptySet();
         }
     }
 
     private MockConsumer<Object, Object> consumer;
+    private ProcessRecordsProgress progress;
     private TestingAbstractCommitPolicy policy;
     private long sleptTime;
 
     @Before
     public void setUp() {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
+        progress = new ProcessRecordsProgress();
         policy = new TestingAbstractCommitPolicy(consumer);
         sleptTime = 0L;
         AbstractCommitPolicy.sleepFunction = sleep -> {
@@ -54,90 +56,6 @@ public class AbstractCommitPolicyTest {
     @After
     public void tearDown() {
         consumer.close();
-    }
-
-    @Test
-    public void testAddOnePendingRecord() {
-        ConsumerRecord<Object, Object> record = new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg);
-        policy.markPendingRecord(record);
-        assertThat(policy.topicOffsetHighWaterMark())
-                .hasSize(1)
-                .containsOnlyKeys(partition(101))
-                .containsValue(1002L);
-        assertThat(policy.noCompletedOffsets()).isFalse();
-        assertThat(policy.noTopicOffsetsToCommit()).isTrue();
-    }
-
-    @Test
-    public void testAddSeveralPendingRecord() {
-        policy.markPendingRecord(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
-        policy.markPendingRecord(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
-        policy.markPendingRecord(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
-        policy.markPendingRecord(new ConsumerRecord<>(testingTopic, 101, 1004, defaultKey, defaultMsg));
-
-        assertThat(policy.topicOffsetHighWaterMark())
-                .hasSize(3)
-                .containsKeys(partition(101),
-                        partition(102), partition(103))
-                .containsValues(1005L, 1003L, 1004L)
-                .extracting(partition(101))
-                .isEqualTo(1005L);
-        assertThat(policy.noCompletedOffsets()).isFalse();
-        assertThat(policy.noTopicOffsetsToCommit()).isTrue();
-    }
-
-    @Test
-    public void testAddOneCompleteRecord() {
-        ConsumerRecord<Object, Object> record = new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg);
-        policy.markPendingRecord(record);
-        policy.markCompletedRecord(record);
-        assertThat(policy.completedTopicOffsetsToCommit())
-                .hasSize(1)
-                .containsOnlyKeys(partition(101))
-                .containsValue(new OffsetAndMetadata(1002L));
-    }
-
-    @Test
-    public void testAddSeveralCompleteRecord() {
-        final List<ConsumerRecord<Object, Object>> records = new ArrayList<>();
-        records.add(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
-        records.add(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
-        records.add(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
-        records.add(new ConsumerRecord<>(testingTopic, 101, 1004, defaultKey, defaultMsg));
-
-        for (ConsumerRecord<Object, Object> record : records) {
-            policy.markPendingRecord(record);
-            policy.markCompletedRecord(record);
-        }
-
-        assertThat(policy.completedTopicOffsetsToCommit())
-                .hasSize(3)
-                .containsKeys(partition(101), partition(102), partition(103))
-                .containsValues(new OffsetAndMetadata(1003L), new OffsetAndMetadata(1004L), new OffsetAndMetadata(1002L))
-                .extracting(partition(101))
-                // the second added record is not a consecutive record, so the offset is remains after it added
-                .isEqualTo(new OffsetAndMetadata(1002L));
-    }
-
-    @Test
-    public void testRevokePartitions() {
-        final List<ConsumerRecord<Object, Object>> records = new ArrayList<>();
-        records.add(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
-        records.add(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
-        records.add(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
-        records.add(new ConsumerRecord<>(testingTopic, 101, 1004, defaultKey, defaultMsg));
-
-        for (ConsumerRecord<Object, Object> record : records) {
-            policy.markPendingRecord(record);
-            policy.markCompletedRecord(record);
-        }
-
-        policy.revokePartitions(toPartitions(IntStream.range(101, 103).boxed().collect(toList())));
-
-        assertThat(policy.completedTopicOffsetsToCommit())
-                .hasSize(1)
-                .containsOnlyKeys(partition(103))
-                .containsValue(new OffsetAndMetadata(1004L));
     }
 
     @Test
@@ -159,25 +77,25 @@ public class AbstractCommitPolicyTest {
 
         for (ConsumerRecord<Object, Object> record : highWaterMark) {
             consumer.addRecord(record);
-            policy.markPendingRecord(record);
+            progress.markPendingRecord(record);
         }
 
         for (ConsumerRecord<Object, Object> record : completeRecords) {
             consumer.addRecord(record);
-            policy.markCompletedRecord(record);
+            progress.markCompletedRecord(record);
         }
 
         consumer.poll(0);
 
-        assertThat(policy.partialCommitSync())
+        assertThat(policy.partialCommitSync(progress))
                 .hasSize(3)
                 .containsExactlyInAnyOrder(partition(103), partition(102), partition(101));
         assertThat(consumer.committed(partition(101))).isEqualTo(offset(1002L));
         assertThat(consumer.committed(partition(102))).isEqualTo(offset(1003L));
         assertThat(consumer.committed(partition(103))).isEqualTo(offset(1004L));
 
-        assertThat(policy.completedTopicOffsetsToCommit()).isEmpty();
-        assertThat(policy.topicOffsetHighWaterMark())
+        assertThat(progress.completedOffsetsToCommit()).isEmpty();
+        assertThat(progress.pendingRecordOffsets())
                 .hasSize(2)
                 .containsEntry(partition(104), 1006L)
                 .containsEntry(partition(105), 1007L);
@@ -196,18 +114,18 @@ public class AbstractCommitPolicyTest {
         records.add(new ConsumerRecord<>(testingTopic, 101, 1004, defaultKey, defaultMsg));
 
         for (ConsumerRecord<Object, Object> record : records) {
-            policy.markPendingRecord(record);
-            policy.markCompletedRecord(record);
+            progress.markPendingRecord(record);
+            progress.markCompletedRecord(record);
         }
 
-        assertThat(policy.fullCommitSync())
+        assertThat(policy.fullCommitSync(progress))
                 .containsExactlyInAnyOrderElementsOf(
                         records.stream()
                                 .map(record -> new TopicPartition(testingTopic, record.partition()))
                                 .collect(Collectors.toSet()));
         verify(mockedConsumer, times(1)).commitSync();
-        assertThat(policy.noCompletedOffsets());
-        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
+        assertThat(progress.noCompletedRecords());
+        assertThat(progress.noPendingRecords()).isTrue();
     }
 
     @Test

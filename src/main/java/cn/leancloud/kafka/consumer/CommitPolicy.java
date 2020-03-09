@@ -6,25 +6,7 @@ import org.apache.kafka.common.TopicPartition;
 import java.util.Collection;
 import java.util.Set;
 
-interface CommitPolicy<K, V> {
-    /**
-     * Mark an {@link ConsumerRecord} as pending before processing it. So {@link CommitPolicy} can know which and
-     * how many records we need to process. It is called by {@link Fetcher} when {@code Fetcher} fetched any
-     * {@link ConsumerRecord}s from Broker.
-     *
-     * @param record the {@link ConsumerRecord} need to process
-     */
-    void markPendingRecord(ConsumerRecord<K, V> record);
-
-    /**
-     * Mark an {@link ConsumerRecord} as completed after processing it. So {@link CommitPolicy} can know which and
-     * how many records we have processed. It is called by {@link Fetcher} when {@code Fetcher} make sure that
-     * a {@code ConsumerRecord} was processed successfully.
-     *
-     * @param record the {@link ConsumerRecord} processed
-     */
-    void markCompletedRecord(ConsumerRecord<K, V> record);
-
+interface CommitPolicy {
     /**
      * Try commit offset for any {@link TopicPartition}s which has processed {@link ConsumerRecord}s based on the
      * intrinsic policy of this {@link CommitPolicy}. This method is called whenever there're any
@@ -35,7 +17,7 @@ interface CommitPolicy<K, V> {
      *                         calculate this value much quicker
      * @return those {@link TopicPartition}s which have no pending {@code ConsumerRecord}s
      */
-    Set<TopicPartition> tryCommit(boolean noPendingRecords);
+    Set<TopicPartition> tryCommit(boolean noPendingRecords, ProcessRecordsProgress progress);
 
     /**
      * Do a dedicated partition commit synchronously which only commit those {@link ConsumerRecord}s that have
@@ -44,12 +26,5 @@ interface CommitPolicy<K, V> {
      *
      * @return those {@link TopicPartition}s which have no pending {@code ConsumerRecord}s
      */
-    Set<TopicPartition> partialCommitSync();
-
-    /**
-     * Revoke internal states for some partitions.
-     *
-     * @param partitions which was revoked from consumer
-     */
-    void revokePartitions(Collection<TopicPartition> partitions);
+    Set<TopicPartition> partialCommitSync(ProcessRecordsProgress progress);
 }

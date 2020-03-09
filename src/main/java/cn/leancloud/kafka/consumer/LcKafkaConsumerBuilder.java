@@ -91,7 +91,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
     @Nullable
     private Deserializer<V> valueDeserializer;
     @Nullable
-    private CommitPolicy<K, V> policy;
+    private CommitPolicy policy;
     @Nullable
     // we have default value for recommitInterval but deliberately only initialize it to the default value in the
     // getter for recommitInterval. Because we would like to log a warning on user forget to set it
@@ -653,7 +653,7 @@ public final class LcKafkaConsumerBuilder<K, V> {
         return handleRecordTimeout;
     }
 
-    CommitPolicy<K, V> getPolicy() {
+    CommitPolicy getPolicy() {
         assert policy != null;
         return policy;
     }

@@ -22,10 +22,12 @@ public class SyncCommitPolicyTest {
     private SyncCommitPolicy<Object, Object> policy;
     private List<TopicPartition> partitions;
     private List<ConsumerRecord<Object, Object>> pendingRecords;
+    private ProcessRecordsProgress progress;
 
     @Before
     public void setUp() {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
+        progress = new ProcessRecordsProgress();
         policy = new SyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofHours(1));
         partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         assignPartitions(consumer, partitions, 0L);
@@ -38,53 +40,53 @@ public class SyncCommitPolicyTest {
     }
 
     @Test
-    public void testOnlyConsumedRecords() {
+    public void testEmptyProgress() {
         final long nextRecommitNanos = policy.nextRecommitNanos();
-        assertThat(policy.tryCommit(true)).isEmpty();
+        assertThat(policy.tryCommit(true, progress)).isEmpty();
         for (TopicPartition partition : partitions) {
             assertThat(consumer.committed(partition)).isNull();
         }
-        assertThat(policy.noCompletedOffsets()).isTrue();
-        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
+        assertThat(progress.noCompletedRecords()).isTrue();
+        assertThat(progress.noPendingRecords()).isTrue();
         assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
     }
 
     @Test
     public void testOnlyPendingRecords() {
         final long nextRecommitNanos = policy.nextRecommitNanos();
-        addPendingRecordsInPolicy(policy, pendingRecords);
-        assertThat(policy.tryCommit(false)).isEmpty();
+        addPendingRecordsInPolicy(progress, pendingRecords);
+        assertThat(policy.tryCommit(false, progress)).isEmpty();
         for (TopicPartition partition : partitions) {
             assertThat(consumer.committed(partition)).isNull();
         }
-        assertThat(policy.noTopicOffsetsToCommit()).isTrue();
-        assertThat(policy.topicOffsetHighWaterMark()).hasSize(partitions.size());
+        assertThat(progress.noOffsetsToCommit()).isTrue();
+        assertThat(progress.pendingRecordOffsets()).hasSize(partitions.size());
         assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
     }
 
     @Test
     public void testHasCompleteRecordsAndPendingRecords() {
         final long nextRecommitNanos = policy.nextRecommitNanos();
-        addCompleteRecordsInPolicy(policy, pendingRecords);
-        assertThat(policy.tryCommit(false)).isEmpty();
+        addCompleteRecordsInPolicy(progress, pendingRecords);
+        assertThat(policy.tryCommit(false, progress)).isEmpty();
         for (TopicPartition partition : partitions) {
             assertThat(consumer.committed(partition)).isNull();
         }
-        assertThat(policy.noCompletedOffsets()).isFalse();
-        assertThat(policy.topicOffsetHighWaterMark()).isNotEmpty();
+        assertThat(progress.noCompletedRecords()).isFalse();
+        assertThat(progress.noPendingRecords()).isFalse();
         assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
     }
 
     @Test
     public void testTryCommitAll() {
         final long nextRecommitNanos = policy.nextRecommitNanos();
-        addCompleteRecordsInPolicy(policy, pendingRecords);
-        assertThat(policy.tryCommit(true)).containsExactlyInAnyOrderElementsOf(partitions);
+        addCompleteRecordsInPolicy(progress, pendingRecords);
+        assertThat(policy.tryCommit(true, progress)).containsExactlyInAnyOrderElementsOf(partitions);
         for (TopicPartition partition : partitions) {
             assertThat(consumer.committed(partition)).isEqualTo(new OffsetAndMetadata(2));
         }
-        assertThat(policy.noCompletedOffsets()).isTrue();
-        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
+        assertThat(progress.noCompletedRecords()).isTrue();
+        assertThat(progress.noPendingRecords()).isTrue();
         assertThat(policy.nextRecommitNanos()).isGreaterThan(nextRecommitNanos);
     }
 }

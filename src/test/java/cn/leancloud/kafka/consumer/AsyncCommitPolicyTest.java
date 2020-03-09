@@ -22,10 +22,11 @@ public class AsyncCommitPolicyTest {
     private AsyncCommitPolicy<Object, Object> policy;
     private List<TopicPartition> partitions;
     private List<ConsumerRecord<Object, Object>> pendingRecords;
-
+    private ProcessRecordsProgress progress;
     @Before
     public void setUp() {
         consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
+        progress = new ProcessRecordsProgress();
         policy = new AsyncCommitPolicy<>(consumer, Duration.ZERO, 3, Duration.ofHours(1), defaultMaxPendingAsyncCommits);
         partitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         assignPartitions(consumer, partitions, 0L);
@@ -38,55 +39,55 @@ public class AsyncCommitPolicyTest {
     }
 
     @Test
-    public void testOnlyConsumedRecords() {
+    public void testEmptyProgress() {
         final long nextRecommitNanos = policy.nextRecommitNanos();
-        assertThat(policy.tryCommit(false)).isEmpty();
+        assertThat(policy.tryCommit(false, progress)).isEmpty();
         for (TopicPartition partition : partitions) {
             assertThat(consumer.committed(partition)).isNull();
         }
-        assertThat(policy.noCompletedOffsets()).isTrue();
-        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
+        assertThat(progress.noCompletedRecords()).isTrue();
+        assertThat(progress.noPendingRecords()).isTrue();
         assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
     }
 
     @Test
     public void testOnlyPendingRecords() {
         final long nextRecommitNanos = policy.nextRecommitNanos();
-        addPendingRecordsInPolicy(policy, pendingRecords);
-        assertThat(policy.tryCommit(true)).isEmpty();
+        addPendingRecordsInPolicy(progress, pendingRecords);
+        assertThat(policy.tryCommit(true, progress)).isEmpty();
         for (TopicPartition partition : partitions) {
             assertThat(consumer.committed(partition)).isNull();
         }
-        assertThat(policy.noTopicOffsetsToCommit()).isTrue();
-        assertThat(policy.topicOffsetHighWaterMark()).isNotEmpty();
+        assertThat(progress.noOffsetsToCommit()).isTrue();
+        assertThat(progress.noPendingRecords()).isFalse();
         assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
     }
 
     @Test
     public void testHasCompleteRecordsAndPendingRecords() {
         final long nextRecommitNanos = policy.nextRecommitNanos();
-        addCompleteRecordsInPolicy(policy, pendingRecords);
-        assertThat(policy.tryCommit(false)).isEmpty();
+        addCompleteRecordsInPolicy(progress, pendingRecords);
+        assertThat(policy.tryCommit(false, progress)).isEmpty();
         for (TopicPartition partition : partitions) {
             assertThat(consumer.committed(partition)).isNull();
         }
-        assertThat(policy.noCompletedOffsets()).isFalse();
-        assertThat(policy.topicOffsetHighWaterMark()).isNotEmpty();
+        assertThat(progress.noCompletedRecords()).isFalse();
+        assertThat(progress.noPendingRecords()).isFalse();
         assertThat(policy.nextRecommitNanos()).isEqualTo(nextRecommitNanos);
     }
 
     @Test
     public void testTryCommitAllAsync() {
         final long nextRecommitNanos = policy.nextRecommitNanos();
-        addCompleteRecordsInPolicy(policy, pendingRecords);
-        assertThat(policy.tryCommit(true)).containsExactlyInAnyOrderElementsOf(partitions);
+        addCompleteRecordsInPolicy(progress, pendingRecords);
+        assertThat(policy.tryCommit(true, progress)).containsExactlyInAnyOrderElementsOf(partitions);
         for (TopicPartition partition : partitions) {
             assertThat(consumer.committed(partition)).isEqualTo(new OffsetAndMetadata(2));
         }
         // async commit callback called immediately when we call consumer.commitAsync()
         // so processing record states was cleared
-        assertThat(policy.noCompletedOffsets()).isTrue();
-        assertThat(policy.topicOffsetHighWaterMark()).isEmpty();
+        assertThat(progress.noCompletedRecords()).isTrue();
+        assertThat(progress.noPendingRecords()).isTrue();
         assertThat(policy.nextRecommitNanos()).isGreaterThan(nextRecommitNanos);
     }
 
@@ -101,9 +102,9 @@ public class AsyncCommitPolicyTest {
 
         final Set<TopicPartition> committedPartitions = new HashSet<>();
         for (ConsumerRecord<Object, Object> record : pendingRecords.subList(0, maxAsyncCommitTimes)) {
-            addCompleteRecordInPolicy(policy, record);
+            addCompleteRecordInPolicy(progress, record);
             committedPartitions.add(new TopicPartition(record.topic(), record.partition()));
-            assertThat(policy.tryCommit(true))
+            assertThat(policy.tryCommit(true, progress))
                     .hasSize(committedPartitions.size())
                     .containsExactlyInAnyOrderElementsOf(committedPartitions);
             assertThat(policy.forceSync()).isFalse();
@@ -114,8 +115,8 @@ public class AsyncCommitPolicyTest {
         assertThat(policy.pendingAsyncCommitCount()).isEqualTo(maxAsyncCommitTimes);
 
         final ConsumerRecord<Object, Object> synCommitRecord = pendingRecords.get(maxAsyncCommitTimes);
-        addCompleteRecordInPolicy(policy, synCommitRecord);
-        assertThat(policy.tryCommit(true))
+        addCompleteRecordInPolicy(progress, synCommitRecord);
+        assertThat(policy.tryCommit(true, progress))
                 .hasSize(partitions.size())
                 .containsExactlyInAnyOrderElementsOf(partitions);
         verify(mockConsumer, times(maxAsyncCommitTimes)).commitAsync(any());
@@ -131,8 +132,8 @@ public class AsyncCommitPolicyTest {
         policy = new AsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofHours(1), 10);
 
         for (ConsumerRecord<Object, Object> record : pendingRecords) {
-            addCompleteRecordInPolicy(policy, record);
-            policy.tryCommit(true);
+            addCompleteRecordInPolicy(progress, record);
+            policy.tryCommit(true, progress);
         }
 
         verify(mockConsumer, times(28)).commitAsync(any());
@@ -154,8 +155,8 @@ public class AsyncCommitPolicyTest {
         policy = new AsyncCommitPolicy<>(mockConsumer, Duration.ZERO, 3, Duration.ofHours(1), 10);
 
         final ConsumerRecord<Object, Object> triggerFailedRecord = pendingRecords.get(0);
-        addCompleteRecordInPolicy(policy, triggerFailedRecord);
-        assertThat(policy.tryCommit(true))
+        addCompleteRecordInPolicy(progress, triggerFailedRecord);
+        assertThat(policy.tryCommit(true, progress))
                 .hasSize(1)
                 .isEqualTo(Collections.singleton(new TopicPartition(triggerFailedRecord.topic(), triggerFailedRecord.partition())));
 
@@ -168,8 +169,8 @@ public class AsyncCommitPolicyTest {
         final Set<TopicPartition> committedPartitions = new HashSet<>();
         committedPartitions.add(new TopicPartition(triggerFailedRecord.topic(), triggerFailedRecord.partition()));
         committedPartitions.add(new TopicPartition(syncRecord.topic(), syncRecord.partition()));
-        addCompleteRecordInPolicy(policy, syncRecord);
-        assertThat(policy.tryCommit(true))
+        addCompleteRecordInPolicy(progress, syncRecord);
+        assertThat(policy.tryCommit(true, progress))
                 .hasSize(committedPartitions.size())
                 .containsExactlyInAnyOrderElementsOf(committedPartitions);
 

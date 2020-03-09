@@ -84,26 +84,26 @@ class TestingUtils {
         return pendingRecords;
     }
 
-    static List<ConsumerRecord<Object, Object>> addPendingRecordsInPolicy(CommitPolicy<Object, Object> policy, List<ConsumerRecord<Object, Object>> records) {
+    static List<ConsumerRecord<Object, Object>> addPendingRecordsInPolicy(ProcessRecordsProgress progress, List<ConsumerRecord<Object, Object>> records) {
         for (ConsumerRecord<Object, Object> record : records) {
-            addPendingRecordInPolicy(policy, record);
+            addPendingRecordInPolicy(progress, record);
         }
         return records;
     }
 
-    static void addPendingRecordInPolicy(CommitPolicy<Object, Object> policy, ConsumerRecord<Object, Object> record) {
-        policy.markPendingRecord(record);
+    static void addPendingRecordInPolicy(ProcessRecordsProgress progress, ConsumerRecord<Object, Object> record) {
+        progress.markPendingRecord(record);
     }
 
-    static List<ConsumerRecord<Object, Object>> addCompleteRecordsInPolicy(CommitPolicy<Object, Object> policy, List<ConsumerRecord<Object, Object>> records) {
+    static List<ConsumerRecord<Object, Object>> addCompleteRecordsInPolicy(ProcessRecordsProgress progress, List<ConsumerRecord<Object, Object>> records) {
         for (ConsumerRecord<Object, Object> record : records) {
-            addCompleteRecordInPolicy(policy, record);
+            addCompleteRecordInPolicy(progress, record);
         }
         return records;
     }
 
-    static void addCompleteRecordInPolicy(CommitPolicy<Object, Object> policy, ConsumerRecord<Object, Object> record) {
-        policy.markPendingRecord(record);
-        policy.markCompletedRecord(record);
+    static void addCompleteRecordInPolicy(ProcessRecordsProgress progress, ConsumerRecord<Object, Object> record) {
+        progress.markPendingRecord(record);
+        progress.markCompletedRecord(record);
     }
 }

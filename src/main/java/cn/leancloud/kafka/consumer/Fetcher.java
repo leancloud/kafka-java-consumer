@@ -81,25 +81,28 @@ final class Fetcher<K, V> implements Runnable, Closeable {
     private final ConsumerRecordHandler<K, V> handler;
     private final ExecutorCompletionService<ConsumerRecord<K, V>> service;
     private final Map<ConsumerRecord<K, V>, Future<ConsumerRecord<K, V>>> pendingFutures;
-    private final CommitPolicy<K, V> policy;
+    private final CommitPolicy policy;
     private final long gracefulShutdownTimeoutNanos;
     private final CompletableFuture<UnsubscribedStatus> unsubscribeStatusFuture;
     private final long handleRecordTimeoutNanos;
+    private final ProcessRecordsProgress progress;
     private volatile boolean closed;
 
     Fetcher(LcKafkaConsumerBuilder<K, V> consumerBuilder) {
         this(consumerBuilder.getConsumer(), consumerBuilder.getPollTimeout(), consumerBuilder.getConsumerRecordHandler(),
                 consumerBuilder.getWorkerPool(), consumerBuilder.getPolicy(), consumerBuilder.getGracefulShutdownTimeout(),
-                consumerBuilder.getHandleRecordTimeout());
+                consumerBuilder.getHandleRecordTimeout(), new ProcessRecordsProgress());
     }
 
     Fetcher(Consumer<K, V> consumer,
             Duration pollTimeout,
             ConsumerRecordHandler<K, V> handler,
             ExecutorService workerPool,
-            CommitPolicy<K, V> policy,
+            CommitPolicy policy,
             Duration gracefulShutdownTimeout,
-            Duration handleRecordTimeout) {
+            Duration handleRecordTimeout,
+            ProcessRecordsProgress progress) {
+        this.progress = progress;
         this.pendingFutures = new HashMap<>();
         this.consumer = consumer;
         this.pollTimeoutMillis = pollTimeout.toMillis();
@@ -168,6 +171,10 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         return unsubscribeStatusFuture;
     }
 
+    ProcessRecordsProgress progress() {
+        return progress;
+    }
+
     @VisibleForTesting
     Map<ConsumerRecord<K, V>, Future<ConsumerRecord<K, V>>> pendingFutures() {
         return pendingFutures;
@@ -189,7 +196,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
                 return record;
             });
             pendingFutures.put(record, timeoutAwareFuture(future));
-            policy.markPendingRecord(record);
+            progress.markPendingRecord(record);
         }
     }
 
@@ -215,7 +222,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         assert !future.isCancelled();
         final Future<ConsumerRecord<K, V>> v = pendingFutures.remove(record);
         assert v != null;
-        policy.markCompletedRecord(record);
+        progress.markCompletedRecord(record);
     }
 
     private void processTimeoutRecords() throws TimeoutException {
@@ -236,7 +243,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
     }
 
     private void tryCommitRecordOffsets() {
-        final Set<TopicPartition> partitions = policy.tryCommit(pendingFutures.isEmpty());
+        final Set<TopicPartition> partitions = policy.tryCommit(pendingFutures.isEmpty(), progress);
         if (!partitions.isEmpty()) {
             // `partitions` may have some revoked partitions so resume may throws IllegalStateException.
             // But rebalance is comparatively rare on production environment. So here we
@@ -259,7 +266,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
         long shutdownTimeout = 0L;
         try {
             shutdownTimeout = waitPendingFuturesDone();
-            policy.partialCommitSync();
+            policy.partialCommitSync(progress);
             pendingFutures.clear();
         } catch (Exception ex) {
             logger.error("Graceful shutdown got unexpected exception", ex);
@@ -282,7 +289,7 @@ final class Fetcher<K, V> implements Runnable, Closeable {
                 assert remain >= 0;
                 final ConsumerRecord<K, V> record = future.get(remain, TimeUnit.MILLISECONDS);
                 assert record != null;
-                policy.markCompletedRecord(record);
+                progress.markCompletedRecord(record);
             } catch (TimeoutException ex) {
                 future.cancel(false);
             } catch (InterruptedException ex) {

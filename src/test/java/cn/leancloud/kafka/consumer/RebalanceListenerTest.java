@@ -19,14 +19,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 public class RebalanceListenerTest {
-    private CommitPolicy<Object, Object> policy;
+    private CommitPolicy policy;
     private Consumer<Object, Object> consumer;
     private RebalanceListener<Object, Object> listener;
+    private ProcessRecordsProgress progress;
 
     @Before
     public void setUp() {
         policy = mock(CommitPolicy.class);
         consumer = mock(Consumer.class);
+        progress = new ProcessRecordsProgress();
     }
 
     @After
@@ -36,14 +38,14 @@ public class RebalanceListenerTest {
 
     @Test
     public void testPauseNotFinishedPartitionsOnPartitionAssign() {
-        listener = new RebalanceListener<>(consumer, policy, ConsumerSeekDestination.NONE);
+        listener = new RebalanceListener<>(consumer, progress, policy, ConsumerSeekDestination.NONE);
         final List<TopicPartition> pausedPartitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         final List<TopicPartition> partitionToResumeAfterCommit = toPartitions(IntStream.range(0, 20).boxed().collect(toList()));
         final List<TopicPartition> assignedPartitions = toPartitions(IntStream.range(10, 25).boxed().collect(toList()));
         final List<TopicPartition> partitionStillNeedsToPause = toPartitions(IntStream.range(20, 25).boxed().collect(toList()));
 
         when(consumer.paused()).thenReturn(new HashSet<>(pausedPartitions));
-        when(policy.partialCommitSync()).thenReturn(new HashSet<>(partitionToResumeAfterCommit));
+        when(policy.partialCommitSync(progress)).thenReturn(new HashSet<>(partitionToResumeAfterCommit));
 
         listener.onPartitionsRevoked(pausedPartitions);
         listener.onPartitionsAssigned(assignedPartitions);
@@ -53,7 +55,8 @@ public class RebalanceListenerTest {
 
     @Test
     public void testRevokePartitions() {
-        listener = new RebalanceListener<>(consumer, policy, ConsumerSeekDestination.NONE);
+        final ProcessRecordsProgress progress = mock(ProcessRecordsProgress.class);
+        listener = new RebalanceListener<>(consumer, progress, policy, ConsumerSeekDestination.NONE);
         final List<TopicPartition> allPartitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         final List<TopicPartition> reAssignedPartitions = toPartitions(IntStream.range(0, 20).boxed().collect(toList()));
         final Set<TopicPartition> revokedPartitions = new HashSet<>(toPartitions(IntStream.range(20, 30).boxed().collect(toList())));
@@ -61,17 +64,17 @@ public class RebalanceListenerTest {
         doAnswer(invocation -> {
             assertThat(revokedPartitions).containsExactlyInAnyOrderElementsOf(invocation.getArgument(0));
             return null;
-        }).when(policy).revokePartitions(anySet());
+        }).when(progress).clearFor(anySet());
 
         listener.onPartitionsRevoked(allPartitions);
         listener.onPartitionsAssigned(reAssignedPartitions);
 
-        verify(policy, times(1)).revokePartitions(anyCollection());
+        verify(progress, times(1)).clearFor(anyCollection());
     }
 
     @Test
     public void testForceSeekToBeginningForAllPartitions() {
-        listener = new RebalanceListener<>(consumer, policy, ConsumerSeekDestination.BEGINNING);
+        listener = new RebalanceListener<>(consumer, progress, policy, ConsumerSeekDestination.BEGINNING);
 
         final List<TopicPartition> assignedPartitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         listener.onPartitionsAssigned(assignedPartitions);
@@ -83,7 +86,7 @@ public class RebalanceListenerTest {
 
     @Test
     public void testForceSeekToBeginningForNewPartitions() {
-        listener = new RebalanceListener<>(consumer, policy, ConsumerSeekDestination.BEGINNING);
+        listener = new RebalanceListener<>(consumer, progress, policy, ConsumerSeekDestination.BEGINNING);
 
         final List<TopicPartition> initialPartitions = toPartitions(IntStream.range(0, 15).boxed().collect(toList()));
         final List<TopicPartition> newAssignedPartitions = toPartitions(IntStream.range(10, 30).boxed().collect(toList()));
@@ -103,7 +106,7 @@ public class RebalanceListenerTest {
 
     @Test
     public void testForceSeekToBeginningWithoutNewPartitions() {
-        listener = new RebalanceListener<>(consumer, policy, ConsumerSeekDestination.BEGINNING);
+        listener = new RebalanceListener<>(consumer, progress, policy, ConsumerSeekDestination.BEGINNING);
 
         final List<TopicPartition> assignedPartitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         listener.onPartitionsAssigned(assignedPartitions);
@@ -117,7 +120,7 @@ public class RebalanceListenerTest {
 
     @Test
     public void testForceSeekToEndForAllPartitions() {
-        listener = new RebalanceListener<>(consumer, policy, ConsumerSeekDestination.END);
+        listener = new RebalanceListener<>(consumer, progress, policy, ConsumerSeekDestination.END);
 
         final List<TopicPartition> assignedPartitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
         listener.onPartitionsAssigned(assignedPartitions);
@@ -129,7 +132,7 @@ public class RebalanceListenerTest {
 
     @Test
     public void testForceSeekToEndForNewPartitions() {
-        listener = new RebalanceListener<>(consumer, policy, ConsumerSeekDestination.END);
+        listener = new RebalanceListener<>(consumer, progress, policy, ConsumerSeekDestination.END);
 
         final List<TopicPartition> initialPartitions = toPartitions(IntStream.range(0, 15).boxed().collect(toList()));
         final List<TopicPartition> newAssignedPartitions = toPartitions(IntStream.range(10, 30).boxed().collect(toList()));
