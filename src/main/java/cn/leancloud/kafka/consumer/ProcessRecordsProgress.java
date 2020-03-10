@@ -9,6 +9,10 @@ import java.util.*;
 import static java.util.Collections.emptyMap;
 import static java.util.stream.Collectors.toSet;
 
+/**
+ * A class to help {@link LcKafkaConsumer} to remember which records it fetched from broker, which records it processed
+ * and where the offsets the consumer can commit to, etc.
+ */
 class ProcessRecordsProgress {
     private final Map<TopicPartition, Long> topicOffsetHighWaterMark;
     private final Map<TopicPartition, CompletedOffsets> completedOffsets;
@@ -19,7 +23,7 @@ class ProcessRecordsProgress {
     }
 
     /**
-     * Mark an {@link ConsumerRecord} as pending before processing it. So {@link CommitPolicy} can know which and
+     * Mark an {@link ConsumerRecord} as pending before processing it. So {@link LcKafkaConsumer} can know which and
      * how many records we need to process. It is called by {@link Fetcher} when {@code Fetcher} fetched any
      * {@link ConsumerRecord}s from Broker.
      *
@@ -40,7 +44,7 @@ class ProcessRecordsProgress {
     }
 
     /**
-     * Mark an {@link ConsumerRecord} as completed after processing it. So {@link CommitPolicy} can know which and
+     * Mark an {@link ConsumerRecord} as completed after processing it. So {@link LcKafkaConsumer} can know which and
      * how many records we have processed. It is called by {@link Fetcher} when {@code Fetcher} make sure that
      * a {@code ConsumerRecord} was processed successfully.
      *
@@ -54,11 +58,19 @@ class ProcessRecordsProgress {
         }
     }
 
+    /**
+     * Clear all saved progress. Usually it is called when we are sure that all the known records we fetched have been committed.
+     */
     void clearAll() {
         topicOffsetHighWaterMark.clear();
         completedOffsets.clear();
     }
 
+    /**
+     * Clear progress for some partitions.
+     *
+     * @param partitions the partitions to clear progress
+     */
     void clearFor(Collection<TopicPartition> partitions) {
         for (TopicPartition p : partitions) {
             topicOffsetHighWaterMark.remove(p);
@@ -66,19 +78,31 @@ class ProcessRecordsProgress {
         }
     }
 
+    /**
+     * @return offsets for all the known records which have been processed and are being processed.
+     */
     @VisibleForTesting
     Map<TopicPartition, Long> pendingRecordOffsets() {
         return topicOffsetHighWaterMark;
     }
 
+    /**
+     * @return true when no any known records have been processed and are being processed
+     */
     boolean noPendingRecords() {
         return topicOffsetHighWaterMark.isEmpty();
     }
 
+    /**
+     * @return partitions for all the known records
+     */
     Set<TopicPartition> allPartitions() {
         return new HashSet<>(topicOffsetHighWaterMark.keySet());
     }
 
+    /**
+     * @return true when no any known records have been processed
+     */
     boolean noCompletedRecords() {
         return completedOffsets.isEmpty();
     }
