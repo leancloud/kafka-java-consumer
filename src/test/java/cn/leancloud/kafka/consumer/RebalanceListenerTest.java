@@ -54,22 +54,34 @@ public class RebalanceListenerTest {
     }
 
     @Test
-    public void testRevokePartitions() {
-        final ProcessRecordsProgress progress = mock(ProcessRecordsProgress.class);
+    public void testPausedPartitionsWasAllRevoked() {
         listener = new RebalanceListener<>(consumer, progress, policy, ConsumerSeekDestination.NONE);
-        final List<TopicPartition> allPartitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
-        final List<TopicPartition> reAssignedPartitions = toPartitions(IntStream.range(0, 20).boxed().collect(toList()));
+        final List<TopicPartition> pausedPartitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
+        final List<TopicPartition> partitionToResumeAfterCommit = toPartitions(IntStream.range(0, 20).boxed().collect(toList()));
+        final List<TopicPartition> assignedPartitions = toPartitions(IntStream.range(10, 20).boxed().collect(toList()));
+
+        when(consumer.paused()).thenReturn(new HashSet<>(pausedPartitions));
+        when(policy.partialCommitSync(progress)).thenReturn(new HashSet<>(partitionToResumeAfterCommit));
+
+        listener.onPartitionsRevoked(pausedPartitions);
+        listener.onPartitionsAssigned(assignedPartitions);
+
+        verify(consumer, never()).pause(any());
+    }
+
+    @Test
+    public void testRevokePartitions() {
+        final Set<TopicPartition> allPartitions = new HashSet<>(toPartitions(IntStream.range(0, 30).boxed().collect(toList())));
+        final Set<TopicPartition> reAssignedPartitions = new HashSet<>(toPartitions(IntStream.range(0, 20).boxed().collect(toList())));
         final Set<TopicPartition> revokedPartitions = new HashSet<>(toPartitions(IntStream.range(20, 30).boxed().collect(toList())));
+        final ProcessRecordsProgress progress = mock(ProcessRecordsProgress.class);
+        when(progress.allPartitions()).thenReturn(allPartitions);
+        when(consumer.assignment()).thenReturn(reAssignedPartitions);
+        listener = new RebalanceListener<>(consumer, progress, policy, ConsumerSeekDestination.NONE);
 
-        doAnswer(invocation -> {
-            assertThat(revokedPartitions).containsExactlyInAnyOrderElementsOf(invocation.getArgument(0));
-            return null;
-        }).when(progress).clearFor(anySet());
-
-        listener.onPartitionsRevoked(allPartitions);
         listener.onPartitionsAssigned(reAssignedPartitions);
 
-        verify(progress, times(1)).clearFor(anyCollection());
+        verify(progress, times(1)).clearFor(revokedPartitions);
     }
 
     @Test

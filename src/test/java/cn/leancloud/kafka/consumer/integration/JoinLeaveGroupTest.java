@@ -26,7 +26,7 @@ class JoinLeaveGroupTest implements IntegrationTest{
         lingerConsumer.subscribe(Collections.singletonList(cxt.topic()));
 
         final List<LcKafkaConsumer<Integer, String>> postJoinConsumers = new ArrayList<>();
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 8; ++i) {
             final LcKafkaConsumer<Integer, String> consumer = cxt.factory().buildConsumer(name() + "-" + i, statistics);
             consumer.subscribe(Collections.singletonList(cxt.topic()));
             postJoinConsumers.add(consumer);

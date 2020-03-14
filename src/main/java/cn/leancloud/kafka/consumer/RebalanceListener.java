@@ -22,7 +22,6 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
     private final ProcessRecordsProgress progress;
     private final Set<TopicPartition> knownPartitions;
     private final ConsumerSeekDestination forceSeekTo;
-    private Set<TopicPartition> lastRevokedPartitions;
     private Set<TopicPartition> pausedPartitions;
 
     RebalanceListener(Consumer<K, V> consumer, ProcessRecordsProgress progress, CommitPolicy policy, ConsumerSeekDestination forceSeekTo) {
@@ -32,12 +31,10 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
         this.pausedPartitions = Collections.emptySet();
         this.knownPartitions = new HashSet<>();
         this.forceSeekTo = forceSeekTo;
-        this.lastRevokedPartitions = new HashSet<>();
     }
 
     @Override
     public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
-        lastRevokedPartitions = new HashSet<>(partitions);
         pausedPartitions = consumer.paused();
         if (!pausedPartitions.isEmpty()) {
             pausedPartitions = new HashSet<>(pausedPartitions);
@@ -55,14 +52,7 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
             pausePreviousPausedPartitions(partitions);
         }
 
-        // We can't use removeAll because of the bad performance of removeAll(#Collection) on HashSet
-        for (TopicPartition p : partitions) {
-            lastRevokedPartitions.remove(p);
-        }
-
-        clearProgressForRevokedPartitions(lastRevokedPartitions);
-
-        lastRevokedPartitions.clear();
+        clearProgressForRevokedPartitions();
     }
 
     private void seekOnAssignedPartitions(Collection<TopicPartition> partitions) {
@@ -95,10 +85,12 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
         pausedPartitions = Collections.emptySet();
     }
 
-    private void clearProgressForRevokedPartitions(Collection<TopicPartition> revokedPartitions) {
-        // revoke those partitions which was revoked and not reassigned
-        if (!revokedPartitions.isEmpty()) {
-            progress.clearFor(revokedPartitions);
+    private void clearProgressForRevokedPartitions() {
+        final Set<TopicPartition> partitionsWithProgress = progress.allPartitions();
+        partitionsWithProgress.removeAll(consumer.assignment());
+
+        if (!partitionsWithProgress.isEmpty()) {
+            progress.clearFor(partitionsWithProgress);
         }
     }
 }
