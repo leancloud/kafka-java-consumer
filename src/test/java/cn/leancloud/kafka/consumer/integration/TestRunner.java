@@ -16,7 +16,7 @@ public class TestRunner implements Closeable {
 
     TestRunner(String topic, ConsumerFactory factory) {
         this.factory = factory;
-        this.producer = new TestingProducer(Duration.ofMillis(100), 4);
+        this.producer = new TestingProducer(Duration.ofMillis(100), 2);
         this.context = new TestContext(topic, producer, factory);
     }
 

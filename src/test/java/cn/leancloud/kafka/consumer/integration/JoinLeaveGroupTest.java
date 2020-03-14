@@ -45,7 +45,7 @@ class JoinLeaveGroupTest implements IntegrationTest{
             statistics.recordTotalSent(totalSent);
             await().atMost(10, SECONDS)
                     .pollInterval(1, SECONDS)
-                    .until(() -> statistics.getReceiveRecordsCount() == totalSent);
+                    .until(() -> statistics.getReceiveRecordsCount() == statistics.getTotalSentCount());
         } finally {
             lingerConsumer.close();
         }

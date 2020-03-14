@@ -141,7 +141,9 @@ class ProcessRecordsProgress {
     void updateCommittedOffsets(Map<TopicPartition, OffsetAndMetadata> offsets) {
         for (Map.Entry<TopicPartition, OffsetAndMetadata> entry : offsets.entrySet()) {
             final CompletedOffsets offset = completedOffsets.get(entry.getKey());
-            offset.updateCommittedOffset(entry.getValue().offset());
+            if (offset != null) {
+                offset.updateCommittedOffset(entry.getValue().offset());
+            }
         }
     }
 
@@ -169,7 +171,10 @@ class ProcessRecordsProgress {
         if (offsetHighWaterMark != null) {
             return offset.offset() >= offsetHighWaterMark;
         }
-        // maybe this partition revoked before a msg of this partition was processed
+
+        assert !completedOffsets.containsKey(topicPartition) : "partition:" + topicPartition + " completedOffsets:" + completedOffsets;
+
+        // topicOffsetHighWaterMark for topicPartition may have been cleared due to like a sync whole commit
         return true;
     }
 }
