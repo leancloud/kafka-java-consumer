@@ -58,7 +58,7 @@ abstract class AbstractRecommitAwareCommitPolicy<K, V> extends AbstractCommitPol
         for (TopicPartition partition : consumer.assignment()) {
             final OffsetAndMetadata offset = consumer.committed(partition);
             if (offset != null) {
-                ret.putIfAbsent(partition, offset);
+                ret.put(partition, offset);
             }
         }
 

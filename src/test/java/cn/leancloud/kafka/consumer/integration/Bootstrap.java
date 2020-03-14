@@ -318,7 +318,7 @@ public class Bootstrap {
                     new StringDeserializer())
                     .workerPool(workerPool, false)
                     .recommitInterval(Duration.ofSeconds(1))
-                    .buildAsync();
+                    .buildPartialAsync();
         }
     }
 
@@ -341,7 +341,7 @@ public class Bootstrap {
                     new IntegerDeserializer(),
                     new StringDeserializer())
                     .recommitInterval(Duration.ofSeconds(1))
-                    .buildAsync();
+                    .buildPartialAsync();
         }
     }
 
