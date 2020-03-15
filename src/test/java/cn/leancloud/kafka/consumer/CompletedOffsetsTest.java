@@ -59,8 +59,9 @@ public class CompletedOffsetsTest {
         offsets.addCompleteOffset(102);
         offsets.addCompleteOffset(103);
 
-        offsets.updateCommittedOffset(103);
+        assertThat(offsets.hasOffsetToCommit()).isTrue();
+        assertThat(offsets.getOffsetToCommit().offset()).isEqualTo(104);
+        offsets.updateCommittedOffset(offsets.getOffsetToCommit().offset());
         assertThat(offsets.hasOffsetToCommit()).isFalse();
-        assertThat(offsets.getOffsetToCommit()).isEqualTo(new OffsetAndMetadata(104));
     }
 }

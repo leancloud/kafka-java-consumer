@@ -7,6 +7,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -86,6 +87,31 @@ public class ProcessRecordsProgressTest {
     }
 
     @Test
+    public void testClearAll() {
+        final List<ConsumerRecord<Object, Object>> records = new ArrayList<>();
+        records.add(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 101, 1004, defaultKey, defaultMsg));
+
+        for (ConsumerRecord<Object, Object> record : records) {
+            progress.markPendingRecord(record);
+            progress.markCompletedRecord(record);
+        }
+
+        assertThat(progress.noCompletedRecords()).isFalse();
+        assertThat(progress.noPendingRecords()).isFalse();
+        progress.clearAll();
+        assertThat(progress.noCompletedRecords()).isTrue();
+        assertThat(progress.noPendingRecords()).isTrue();
+    }
+
+    @Test
+    public void testCompletedOffsetsToCommitOnEmptyCompletedRecords() {
+        assertThat(progress.completedOffsetsToCommit()).isEmpty();
+    }
+
+    @Test
     public void testRevokePartitions() {
         final List<ConsumerRecord<Object, Object>> records = new ArrayList<>();
         records.add(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
@@ -104,6 +130,98 @@ public class ProcessRecordsProgressTest {
                 .hasSize(1)
                 .containsOnlyKeys(partition(103))
                 .containsValue(new OffsetAndMetadata(1004L));
+    }
+
+    @Test
+    public void testNoOffsetsToCommit() {
+        assertThat(progress.noOffsetsToCommit()).isTrue();
+    }
+
+    @Test
+    public void testNoOffsetsToCommit2() {
+        final List<ConsumerRecord<Object, Object>> records = new ArrayList<>();
+        records.add(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 101, 1004, defaultKey, defaultMsg));
+
+        for (ConsumerRecord<Object, Object> record : records) {
+            progress.markPendingRecord(record);
+        }
+
+        assertThat(progress.noOffsetsToCommit()).isTrue();
+    }
+
+    @Test
+    public void testNoOffsetsToCommit3() {
+        final List<ConsumerRecord<Object, Object>> records = new ArrayList<>();
+        records.add(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 101, 1004, defaultKey, defaultMsg));
+
+        for (ConsumerRecord<Object, Object> record : records) {
+            progress.markPendingRecord(record);
+        }
+
+        progress.markCompletedRecord(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
+        assertThat(progress.noOffsetsToCommit()).isFalse();
+    }
+
+    @Test
+    public void testUpdateCommittedOffsets() {
+        final List<ConsumerRecord<Object, Object>> records = new ArrayList<>();
+        records.add(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
+
+        for (ConsumerRecord<Object, Object> record : records) {
+            progress.markPendingRecord(record);
+            progress.markCompletedRecord(record);
+        }
+
+        assertThat(progress.completedOffsetsToCommit()).hasSize(3);
+        progress.updateCommittedOffsets(buildCommitOffsets(records));
+        assertThat(progress.completedOffsetsToCommit()).isEmpty();
+    }
+
+    @Test
+    public void testUpdateCommittedOffsetsWithoutProgress() {
+        final List<ConsumerRecord<Object, Object>> records = new ArrayList<>();
+        records.add(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
+
+        for (ConsumerRecord<Object, Object> record : records) {
+            progress.markPendingRecord(record);
+            progress.markCompletedRecord(record);
+        }
+
+        progress.clearFor(Collections.singletonList(new TopicPartition(testingTopic, 101)));
+        assertThat(progress.completedOffsetsToCommit()).hasSize(2);
+        progress.updateCommittedOffsets(buildCommitOffsets(records));
+        assertThat(progress.completedOffsetsToCommit()).isEmpty();
+    }
+
+    @Test
+    public void testCompletedPartitionsWithoutProgress() {
+        final List<ConsumerRecord<Object, Object>> records = new ArrayList<>();
+        records.add(new ConsumerRecord<>(testingTopic, 101, 1001, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 102, 1002, defaultKey, defaultMsg));
+        records.add(new ConsumerRecord<>(testingTopic, 103, 1003, defaultKey, defaultMsg));
+
+        for (ConsumerRecord<Object, Object> record : records) {
+            progress.markPendingRecord(record);
+            progress.markCompletedRecord(record);
+        }
+
+        progress.markPendingRecord(new ConsumerRecord<>(testingTopic, 102, 1003, defaultKey, defaultMsg));
+
+        progress.clearFor(Collections.singletonList(new TopicPartition(testingTopic, 101)));
+        assertThat(progress.completedPartitions(buildCommitOffsets(records)))
+                .hasSize(2)
+                .contains(new TopicPartition(testingTopic, 101),
+                        new TopicPartition(testingTopic, 103));
     }
 
     private TopicPartition partition(int partition) {
