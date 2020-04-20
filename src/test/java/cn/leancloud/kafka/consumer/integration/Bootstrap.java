@@ -48,13 +48,14 @@ public class Bootstrap {
         final List<TestRunner> runners = prepareRunners();
 
         try {
-            for (TestRunner runner : runners) {
-                runner.runTest(new SingleConsumerTest());
-                runner.runTest(new TwoConsumerTest());
-                runner.runTest(new JoinLeaveGroupTest());
+            for (int i = 0; i < runners.size(); i++) {
+                try (TestRunner runner = runners.get(i)){
+                    runner.runTest(new SingleConsumerTest());
+                    runner.runTest(new TwoConsumerTest());
+                    runner.runTest(new JoinLeaveGroupTest());
+                }
             }
         } finally {
-            shutdown(runners);
             workerPool.shutdown();
         }
     }
@@ -106,12 +107,6 @@ public class Bootstrap {
                 .collect(toList());
         logger.info("Test runners prepared\n");
         return runners;
-    }
-
-    private static void shutdown(List<TestRunner> runners) throws Exception {
-        for (TestRunner runner : runners) {
-            runner.close();
-        }
     }
 
     private static class AutoCommitWithWorkerPoolConsumerFactory implements ConsumerFactory {

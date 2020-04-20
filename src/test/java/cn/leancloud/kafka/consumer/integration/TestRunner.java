@@ -9,6 +9,8 @@ import java.time.Duration;
 
 public class TestRunner implements Closeable {
     private static final Logger logger = LoggerFactory.getLogger(TestRunner.class);
+    private static final Duration defaultProducerSendMsgInterval = Duration.ofMillis(100);
+    private static final int defaultConcurrentProducerCount = 2;
 
     private final TestingProducer producer;
     private final ConsumerFactory factory;
@@ -16,7 +18,7 @@ public class TestRunner implements Closeable {
 
     TestRunner(String topic, ConsumerFactory factory) {
         this.factory = factory;
-        this.producer = new TestingProducer(Duration.ofMillis(100), 2);
+        this.producer = new TestingProducer(defaultProducerSendMsgInterval, defaultConcurrentProducerCount);
         this.context = new TestContext(topic, producer, factory);
     }
 
@@ -24,7 +26,7 @@ public class TestRunner implements Closeable {
         logger.info("\n\n\n------------------------------------ Start {} with consumer: {} ------------------------------------\n",
                 test.name(), factory.type());
 
-        final TestStatistics statistics = context.newStatistics();
+        final TestStatistics statistics = new TestStatistics();
         try {
             test.runTest(context, statistics);
 

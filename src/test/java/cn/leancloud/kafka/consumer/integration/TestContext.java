@@ -22,8 +22,4 @@ public class TestContext {
     public String topic() {
         return topic;
     }
-
-    public TestStatistics newStatistics() {
-        return new TestStatistics();
-    }
 }
