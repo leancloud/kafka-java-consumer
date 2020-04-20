@@ -40,6 +40,7 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
             pausedPartitions = new HashSet<>(pausedPartitions);
             pausedPartitions.removeAll(policy.partialCommitSync(progress));
         }
+        policy.pauseCommit();
     }
 
     @Override
@@ -48,11 +49,14 @@ final class RebalanceListener<K, V> implements ConsumerRebalanceListener {
             seekOnAssignedPartitions(partitions);
         }
 
+        clearProgressForRevokedPartitions();
+
+        policy.resumeCommit();
+        final Set<TopicPartition> resumedPartitions = policy.partialCommitSync(progress);
         if (!pausedPartitions.isEmpty()) {
+            pausedPartitions.removeAll(resumedPartitions);
             pausePreviousPausedPartitions(partitions);
         }
-
-        clearProgressForRevokedPartitions();
     }
 
     private void seekOnAssignedPartitions(Collection<TopicPartition> partitions) {

@@ -38,6 +38,24 @@ public class AutoCommitPolicyTest {
     }
 
     @Test
+    public void testPauseResumeCommit() {
+        addCompleteRecordsInPolicy(progress, pendingRecords);
+
+        policy.pauseCommit();
+        assertThat(policy.tryCommit(true, progress)).isEmpty();
+        assertThat(progress.noCompletedRecords()).isFalse();
+        assertThat(progress.noPendingRecords()).isFalse();
+
+        policy.resumeCommit();
+        assertThat(policy.tryCommit(true, progress))
+                .hasSize(partitions.size())
+                .containsExactlyInAnyOrderElementsOf(partitions);
+
+        assertThat(progress.noCompletedRecords()).isTrue();
+        assertThat(progress.noPendingRecords()).isTrue();
+    }
+
+    @Test
     public void testOnlyConsumedRecords() {
         assertThat(policy.tryCommit(true, progress)).isEmpty();
         for (TopicPartition partition : partitions) {

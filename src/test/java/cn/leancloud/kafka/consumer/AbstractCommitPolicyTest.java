@@ -180,6 +180,15 @@ public class AbstractCommitPolicyTest {
         assertThat(Thread.interrupted());
     }
 
+    @Test
+    public void testPauseResume() {
+        assertThat(policy.commitPaused()).isFalse();
+        policy.pauseCommit();
+        assertThat(policy.commitPaused()).isTrue();
+        policy.resumeCommit();
+        assertThat(policy.commitPaused()).isFalse();
+    }
+
     private TopicPartition partition(int partition) {
         return new TopicPartition(testingTopic, partition);
     }

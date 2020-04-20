@@ -5,6 +5,7 @@ import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -24,6 +25,10 @@ abstract class AbstractRecommitAwareCommitPolicy<K, V> extends AbstractCommitPol
 
     @Override
     public final Set<TopicPartition> tryCommit(boolean noPendingRecords, ProcessRecordsProgress progress) {
+        if (commitPaused()) {
+            return Collections.emptySet();
+        }
+
         if (needRecommit()) {
             commitSyncWithRetry(offsetsForRecommit());
             updateNextRecommitTime();

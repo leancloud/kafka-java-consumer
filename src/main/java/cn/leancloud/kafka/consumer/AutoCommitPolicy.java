@@ -16,7 +16,7 @@ final class AutoCommitPolicy<K, V> extends AbstractCommitPolicy<K, V> {
 
     @Override
     public Set<TopicPartition> tryCommit(boolean noPendingRecords, ProcessRecordsProgress progress) {
-        if (progress.noOffsetsToCommit()) {
+        if (commitPaused() || progress.noOffsetsToCommit()) {
             return emptySet();
         }
 
