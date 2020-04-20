@@ -7,10 +7,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.IntStream;
 
 import static cn.leancloud.kafka.consumer.TestingUtils.toPartitions;
@@ -82,6 +79,29 @@ public class RebalanceListenerTest {
         listener.onPartitionsAssigned(reAssignedPartitions);
 
         verify(progress, times(1)).clearFor(revokedPartitions);
+    }
+
+    @Test
+    public void testPauseResumeCommit() {
+        listener = new RebalanceListener<>(consumer, progress, policy, ConsumerSeekDestination.NONE);
+        final List<TopicPartition> pausedPartitions = toPartitions(IntStream.range(0, 30).boxed().collect(toList()));
+        final List<TopicPartition> partitionToResumeAfterCommit = toPartitions(IntStream.range(0, 20).boxed().collect(toList()));
+        final List<TopicPartition> assignedPartitions = toPartitions(IntStream.range(10, 25).boxed().collect(toList()));
+        final List<TopicPartition> partitionStillNeedsToPause = toPartitions(IntStream.range(20, 25).boxed().collect(toList()));
+
+        when(consumer.paused()).thenReturn(new HashSet<>(pausedPartitions));
+        when(policy.partialCommitSync(progress))
+                // Return empty Set on the first call
+                .thenReturn(Collections.emptySet())
+                // Return resumed partitions on the second call
+                .thenReturn(new HashSet<>(partitionToResumeAfterCommit));
+
+        listener.onPartitionsRevoked(pausedPartitions);
+        verify(policy, times(1)).pauseCommit();
+        listener.onPartitionsAssigned(assignedPartitions);
+        verify(policy, times(1)).resumeCommit();
+
+        verify(consumer, times(1)).pause(new HashSet<>(partitionStillNeedsToPause));
     }
 
     @Test

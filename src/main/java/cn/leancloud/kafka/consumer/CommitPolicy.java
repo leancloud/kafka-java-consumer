@@ -3,7 +3,6 @@ package cn.leancloud.kafka.consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 
-import java.util.Collection;
 import java.util.Set;
 
 interface CommitPolicy {
@@ -27,4 +26,25 @@ interface CommitPolicy {
      * @return those {@link TopicPartition}s which have no pending {@code ConsumerRecord}s
      */
     Set<TopicPartition> partialCommitSync(ProcessRecordsProgress progress);
+
+    /**
+     * Pause commit until {@link #resumeCommit()} is called. Next {@link #tryCommit(boolean, ProcessRecordsProgress)}
+     * will return empty Set without commit anything.
+     * <p>
+     * Please note that this method has no effect on {@link #partialCommitSync(ProcessRecordsProgress)} which will
+     * even this method was called.
+     */
+    void pauseCommit();
+
+    /**
+     * Resume commit and next {@link #tryCommit(boolean, ProcessRecordsProgress)} will do the commitment stuff.
+     */
+    void resumeCommit();
+
+    /**
+     * Check weather commit was paused.
+     *
+     * @return true when {@link #pauseCommit()} has been called
+     */
+    boolean commitPaused();
 }

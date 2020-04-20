@@ -22,4 +22,18 @@ final class NoOpCommitPolicy implements CommitPolicy {
     public Set<TopicPartition> partialCommitSync(ProcessRecordsProgress progress) {
         return emptySet();
     }
+
+    @Override
+    public void pauseCommit() {
+    }
+
+    @Override
+    public void resumeCommit() {
+
+    }
+
+    @Override
+    public boolean commitPaused() {
+        return false;
+    }
 }

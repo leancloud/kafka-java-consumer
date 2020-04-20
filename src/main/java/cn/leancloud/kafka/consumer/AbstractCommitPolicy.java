@@ -46,6 +46,7 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy {
     protected final Consumer<K, V> consumer;
     private final long syncCommitRetryIntervalMs;
     private final int maxAttemptsForEachSyncCommit;
+    private boolean commitPuased;
 
     AbstractCommitPolicy(Consumer<K, V> consumer, Duration syncCommitRetryInterval, int maxAttemptsForEachSyncCommit) {
         this.consumer = consumer;
@@ -63,6 +64,21 @@ abstract class AbstractCommitPolicy<K, V> implements CommitPolicy {
         progress.updateCommittedOffsets(offsetsToCommit);
 
         return progress.clearCompletedPartitions(offsetsToCommit);
+    }
+
+    @Override
+    public void pauseCommit() {
+        commitPuased = true;
+    }
+
+    @Override
+    public void resumeCommit() {
+        commitPuased = false;
+    }
+
+    @Override
+    public boolean commitPaused() {
+        return commitPuased;
     }
 
     Set<TopicPartition> fullCommitSync(ProcessRecordsProgress progress) {

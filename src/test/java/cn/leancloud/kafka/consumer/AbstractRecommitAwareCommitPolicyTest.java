@@ -60,4 +60,26 @@ public class AbstractRecommitAwareCommitPolicyTest {
         verify(consumer, times(1)).commitSync(previousCommitOffsets);
         assertThat(policy.nextRecommitNanos()).isGreaterThan(now + Duration.ofMillis(200).toNanos());
     }
+
+    @Test
+    public void testNoRecommitWhenPaused() {
+        final Consumer<Object, Object> consumer = mock(Consumer.class);
+        final List<ConsumerRecord<Object, Object>> prevRecords = prepareConsumerRecords(toPartitions(IntStream.range(0, 10).boxed().collect(toList())), 1, 10);
+        final Map<TopicPartition, OffsetAndMetadata> previousCommitOffsets = buildCommitOffsets(prevRecords);
+        final long now = System.nanoTime();
+
+        when(consumer.assignment()).thenReturn(new HashSet<>(partitions));
+        when(consumer.committed(any())).thenAnswer(invocation ->
+                previousCommitOffsets.get(invocation.getArgument(0))
+        );
+
+        policy = new TestingPolicy(consumer, Duration.ZERO, 3, Duration.ofMillis(200));
+        policy.pauseCommit();
+
+        policy.updateNextRecommitTime(now - Duration.ofMillis(200).toNanos());
+        assertThat(policy.tryCommit(true, new ProcessRecordsProgress())).isEmpty();
+
+        verify(consumer, never()).commitSync(any());
+        assertThat(policy.nextRecommitNanos()).isEqualTo(now);
+    }
 }
