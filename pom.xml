@@ -57,7 +57,7 @@
         <module.jacoco.skip>true</module.jacoco.skip>
         <project.build.sourceEncoding>utf-8</project.build.sourceEncoding>
         <skipTests>false</skipTests>
-        <log4j.version>2.16.0</log4j.version>
+        <log4j.version>2.17.0</log4j.version>
         <slf4j.version>1.7.29</slf4j.version>
     </properties>
 
